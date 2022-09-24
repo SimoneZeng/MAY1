@@ -19,11 +19,11 @@ import numpy as np
 
 # Hyper Parameters
 BATCH_SIZE = 32
-LR = 0.01                   # learning rate
+LR = 0.001                   # learning rate
 EPSILON = 0.9               # greedy policy
 GAMMA = 0.99                # reward discount
 TARGET_REPLACE_ITER = 1000   # target update frequency
-MEMORY_CAPACITY = 2000
+MEMORY_CAPACITY = 20000 # 20000
 #env = gym.make('CartPole-v0')
 #env = env.unwrapped
 #N_ACTIONS = env.action_space.n
@@ -48,7 +48,7 @@ class Net(nn.Module):
         return actions_value
 
 
-class DQN(object):
+class DQN(nn.Module): # 从object改为了nn.Module
     def __init__(self, N_STATES, N_ACTIONS):
         self.N_ACTIONS = N_ACTIONS
         self.N_STATES = N_STATES
@@ -77,8 +77,8 @@ class DQN(object):
     def store_transition(self, s, a, r, s_):
         s = np.reshape(s, (-1, 1))
         s = np.squeeze(s)
-        s_ = np.reshape(s, (-1, 1))
-        s_ = np.squeeze(s)
+        s_ = np.reshape(s_, (-1, 1))
+        s_ = np.squeeze(s_)
         transition = np.hstack((s, [a, r], s_))
         # replace the old memory with new memory
         index = self.memory_counter % MEMORY_CAPACITY
