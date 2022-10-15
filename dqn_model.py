@@ -50,6 +50,7 @@ class Net(nn.Module):
 
 class DQN(nn.Module): # 从object改为了nn.Module
     def __init__(self, N_STATES, N_ACTIONS):
+        super(DQN, self).__init__() # 需要添加这个，否则在保存agent.state_dict()是会显示has no attribute 'state_dict'
         self.N_ACTIONS = N_ACTIONS
         self.N_STATES = N_STATES
         self.eval_net, self.target_net = Net(N_STATES, N_ACTIONS), Net(N_STATES, N_ACTIONS)
