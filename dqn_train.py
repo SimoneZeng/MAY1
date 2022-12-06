@@ -5,6 +5,18 @@ Created on Thu Jul 28 10:26:55 2022
 包括(1)使用TraCI接口获取模拟环境中的信息，以及(2)训练RL模型
 使用speed为0.8 safe为ttc vehicle_collision 为100
 
+使用speed为0.8 safe为ttc vehicle_collision 为100
+（1）修改acc为-3 -1 0 +1 +3 对应修改：（1） random action的int取值范围，action_int的含义；（2）a_dim传入
+（2）增加了learn()
+
+在train 函数中增加了 done， 增加了trainsition 和 df 中对 done 的记录
+使用dqn_model_done 模型
+增加 id_dict 存储周围车辆的 id 信息
+增加df 中的 fact acc
+
+变道时 对后方车辆计算ttc
+增加撞车处理
+
 dependencies:
 traci:1.14.0
 sumolib:1.14.0
@@ -18,7 +30,7 @@ from copy import deepcopy
 import matplotlib.pyplot as plt
 import torch
 import random
-from dqn_model import DQN
+from dqn_model_done import DQN
 import os, sys
 import pandas as pd
 
@@ -26,8 +38,8 @@ import pandas as pd
 # 引入地址 
 sumo_path = os.environ['SUMO_HOME'] # "D:\\sumo\\sumo1.13.0"
 #project_path = "E:\condaProject\sumo_intersection\sumo_test01\sumo" # 暂时没啥用
-#cfg_path = "E:\condaProject\sumo_intersection\sumo_test01\sumo\one_way.sumocfg" # 1.在本地用这个cfg_path
-cfg_path = "/home/zengximu/sumo_inter/sumo_test01/sumo/one_way.sumocfg" # 2. 在服务器上用这个cfg_path
+cfg_path = "E:\condaProject\sumo_intersection\sumo_test01\sumo\one_way.sumocfg" # 1.在本地用这个cfg_path
+#cfg_path = "/home/zengximu/sumo_inter/sumo_test01/sumo/one_way.sumocfg" # 2. 在服务器上用这个cfg_path
 sys.path.append(sumo_path)
 sys.path.append(sumo_path + "/tools")
 sys.path.append(sumo_path + "/tools/xml")
@@ -47,7 +59,7 @@ from sumolib import checkBinary
 os.environ['CUDA_VISIBLE_DEVICES']='0, 1'  # 显卡使用
 
 # 是否打开gui
-gui = False
+gui = True # False True
 if gui == 1:
     sumoBinary = checkBinary('sumo-gui') # 方法一
 #    sumoBinary = sumo_path + "/bin/sumo-gui" # 方法二：后面添加路径中的/与sumo_path中的\可能不匹配，不建议使用
@@ -63,10 +75,10 @@ map_ve = {}
 back_id = [' ', ' ']
 auto_vehicle_a = 0
 # 统计总的训练次数
-step = 0
+step = 20000 # 0
 # 存储奖励值的数组，分epo存的
 cols = ['epo', 'train_step', 'position_y', 'target_lane', 'lane', 'speed', 
-         'a', 'acc', 'change_lane', 'r','r_safe', 'r_eff','r_com', 's', 's_']
+         'a', 'fact_acc', 'acc', 'change_lane', 'r','r_safe', 'r_eff','r_com', 'r_side', 'done', 's', 's_']
 df_record = pd.DataFrame(columns = cols)
 
 
@@ -99,6 +111,7 @@ def get_all(control_vehicle, select_dis):
 
     # 总的需要收集的车辆信息的数组
     Id_list = []
+    Id_dict = {}
     # 六个方向的车辆信息，这里收集的信息主要是为了根据距离找到最近的车的ID
     up = []
     upright = []
@@ -137,52 +150,68 @@ def get_all(control_vehicle, select_dis):
     # up[0][-1]指车辆ID, map_ve[up[0][-1]]是要收集的车辆信息
     if len(up) >= 1:
         Id_list.append(map_ve[up[0][-1]])
+        Id_dict['up'] = up[0][-1]
     else:
         Id_list.append([200, 0, 0])
+        Id_dict['up'] = ''
 
     upright = sorted(upright, key=lambda x: x[0])
     if len(upright) >= 1:
         Id_list.append(map_ve[upright[0][-1]])
+        Id_dict['upright'] = upright[0][-1]
     else:
         if '0' in ego_lane:
             Id_list.append([0, -3.2, 0])
+            Id_dict['upright'] = ''
         else:
             Id_list.append([200, -3.2, 0])
+            Id_dict['upright'] = ''
 
     upleft = sorted(upleft, key=lambda x: x[0])
     if len(upleft) >= 1:
         Id_list.append(map_ve[upleft[0][-1]])
+        Id_dict['upleft'] = upleft[0][-1]
     else:
         if '2' in ego_lane:
             Id_list.append([0, 3.2, 0])
+            Id_dict['upleft'] = ''
         else:
             Id_list.append([200, 3.2, 0])
+            Id_dict['upleft'] = ''
 
     down = sorted(down, key=lambda x: x[0])
     if len(down) >= 1:
         Id_list.append(map_ve[down[-1][-1]])
+        Id_dict['down'] = down[-1][-1]
         back_v = down[-1][-1]
     else:
         Id_list.append([-200, 0, 0])
+        Id_dict['down'] = ''
         back_v = 0
 
     downright = sorted(downright, key=lambda x: x[0])
     if len(downright) >= 1:
         Id_list.append(map_ve[downright[-1][-1]])
+        Id_dict['downright'] = downright[-1][-1]
     else:
         if '0' in ego_lane:
             Id_list.append([0, -3.2, 0])
+            Id_dict['downright'] = ''
         else:
             Id_list.append([-200, -3.2, 0])
+            Id_dict['downright'] = ''
 
     downleft = sorted(downleft, key=lambda x: x[0])
     if len(downleft) >= 1:
         Id_list.append(map_ve[downleft[-1][-1]])
+        Id_dict['downleft'] = downleft[-1][-1]
     else:
         if '2' in ego_lane:
             Id_list.append([0, 3.2, 0])
+            Id_dict['downleft'] = ''
         else:
             Id_list.append([-200, 3.2, 0])
+            Id_dict['downleft'] = ''
 
     # 更新后方车的ID
     global back_id
@@ -201,7 +230,7 @@ def get_all(control_vehicle, select_dis):
         cal_a = auto_vehicle_a
     else:
         cal_a = traci.vehicle.getAcceleration(control_vehicle)
-    Id_list.append([traci.vehicle.getSpeed(control_vehicle)/25, cal_a/3, ego_l]) # 其他论文里也是这样加ego车辆数据
+    Id_list.append([y_speed/25, cal_a/3, ego_l]) # 其他论文里也是这样加ego车辆数据
 
     # 归一化，需要，要不然容易边界值
     for i in range(6):
@@ -222,15 +251,15 @@ def get_all(control_vehicle, select_dis):
                 relspeed = traci.vehicle.getSpeed(v) - y_speed
     
     # 前后200m范围内容的车道级流量
-    flow_left = len(upleft) + len(downleft)
-    flow_middle = len(up) + len(down)
-    flow_right = len(upright) + len(downright)
-    flow = {'flow_left': flow_left, 'flow_middle': flow_middle, 'flow_right': flow_right} # 暂时还没有用到
+#    flow_left = len(upleft) + len(downleft)
+#    flow_middle = len(up) + len(down)
+#    flow_right = len(upright) + len(downright)
+#    flow = {'flow_left': flow_left, 'flow_middle': flow_middle, 'flow_right': flow_right} # 暂时还没有用到
     
     rel_up = {'relspace': relspace, 'relspeed':relspeed}
     
     # 周围车信息，相对距离，相对速度
-    return Id_list, rel_up, flow
+    return Id_list, rel_up, Id_dict
 
 
 def train(agent, control_vehicle, episode, train_step, target_lane):
@@ -240,33 +269,40 @@ def train(agent, control_vehicle, episode, train_step, target_lane):
     存储信息到df_record以及 agent.store_transition
     :return: collision 
     '''
-    all_vehicle, rel_up, _ = get_all(control_vehicle, 200)
+    all_vehicle, rel_up, v_dict = get_all(control_vehicle, 200)
     action_int = agent.choose_action(np.array(all_vehicle)) # 返回第action_int个动作 0-8
     inf = -1
     inf_car = -100 # 撞车惩罚
+    done = 0 # 回合结束标志
     
     # 随机探索
     global step
+    print(f"global step is: {step}")
     if step<20000:
-        action_int = random.randint(0, 9)
+        action_int = random.randint(0, 14)
         step = step+1
+#        agent.learn()
     
-    # 012位指加速 345指不变速 678指减速；然后036指左变道，147指不变道，258指右变道
+    # 012位指减速-3 345指减速-1 678指不变速 9 10 11 指+1 12 13 14 指+3；然后0369 12指左变道，14710 13指不变道，25811 14指右变道
     acc = 0 # 需要先赋值初始值
     if action_int in [0, 1, 2]:
-        acc= 1
+        acc= -3
     if action_int in [3, 4, 5]:
-        acc= 0
-    if action_int in [6, 7, 8]:
         acc= -1
+    if action_int in [6, 7, 8]:
+        acc= 0
+    if action_int in [9, 10, 11]:
+        acc= 1
+    if action_int in [12, 13, 14]:
+        acc= 3
         
     # 0车道右车道在-8.0；1车道在-4.8；2车道左车道在-1.6
     change_lane = ''
-    if action_int in [0, 3, 6]:
+    if action_int in [0, 3, 6, 9, 12]:
         change_lane = 'left'
-    if action_int in [1, 4, 7]:
+    if action_int in [1, 4, 7, 10, 13]:
         change_lane = 'keep'
-    if action_int in [2, 5, 8]:
+    if action_int in [2, 5, 8, 11 ,14]:
         change_lane = 'right'
     
 
@@ -279,31 +315,78 @@ def train(agent, control_vehicle, episode, train_step, target_lane):
                          "position": traci.vehicle.getPosition(control_vehicle)}
     
     # 计算速度，控制限速
-    sp = traci.vehicle.getSpeed(control_vehicle) + acc*0.5
+    sp = traci.vehicle.getSpeed(control_vehicle) + acc*0.5 # 0.5s simulate一次
     sp = np.array([sp]).clip(0, 25)[0] # 将sp转为array，裁剪取值范围后取其float值
     traci.vehicle.setSpeed(control_vehicle, sp) # 将速度设置好
     
     # 撞墙处理，车道从左到右是2,1,0
     if 'E0_0' == pre_ego_info_dict["LaneID"] and change_lane=='right':
         # 将撞墙的数据存到经验池里面去
-        agent.store_transition(all_vehicle, action_int, inf, np.zeros((7,3)))
+        done = 1
+        agent.store_transition(all_vehicle, action_int, inf, np.zeros((7,3)), done)
         global df_record
         df_record = df_record.append(pd.DataFrame([[episode, train_step, pre_ego_info_dict['position'][0], 
                                                     target_lane, pre_ego_info_dict['LaneID'], 
-                                                    pre_ego_info_dict['speed'], action_int, acc, change_lane, 
-                                                    inf, 0, 0, 0, all_vehicle, np.zeros((7,3))]], columns = cols))
+                                                    pre_ego_info_dict['speed'], action_int, pre_ego_info_dict['acc'], acc, change_lane, 
+                                                    inf, 0, 0, 0, 0, done, all_vehicle, np.zeros((7,3))]], columns = cols))
         print("====================右右右右车道撞墙墙墙墙===================")
         change_lane='keep'
+        done = 0 # 撞墙存储完了之后，done为0，ego车辆继续跑
+        # 修改action_int 到 keep的范围中
+        if action_int in [0, 3, 6, 9, 12]:
+            action_int  = action_int + 1
+        if action_int in [2, 5, 8, 11 ,14]:
+            action_int  = action_int - 1
     if 'E0_2' == pre_ego_info_dict["LaneID"] and change_lane=='left':
         # 将撞墙的数据存到经验池里面去
-        agent.store_transition(all_vehicle, action_int, inf, np.zeros((7,3)))
+        done = 1
+        agent.store_transition(all_vehicle, action_int, inf, np.zeros((7,3)), done)
 #            global df_record
         df_record = df_record.append(pd.DataFrame([[episode, train_step, pre_ego_info_dict['position'][0], 
                                                     target_lane, pre_ego_info_dict['LaneID'], 
-                                                    pre_ego_info_dict['speed'], action_int, acc, change_lane, 
-                                                    inf, 0, 0, 0, all_vehicle, np.zeros((7,3))]], columns = cols))
+                                                    pre_ego_info_dict['speed'], action_int, pre_ego_info_dict['acc'], acc, change_lane, 
+                                                    inf, 0, 0, 0, 0, done, all_vehicle, np.zeros((7,3))]], columns = cols))
         print("====================左左左左车道撞墙墙墙墙===================")
         change_lane='keep'
+        done = 0
+        # 修改action_int 到 keep的范围中
+        if action_int in [0, 3, 6, 9, 12]:
+            action_int  = action_int + 1
+        if action_int in [2, 5, 8, 11 ,14]:
+            action_int  = action_int - 1
+    
+    # 变道撞车控制 惩罚为 inf_car
+    dis_downleft = 0
+    dis_downright = 0
+    dis_upleft = 0
+    dis_upright = 0
+    
+    if v_dict['downleft'] != '':
+        dis_downleft = pre_ego_info_dict['position'][0] - traci.vehicle.getPosition(v_dict['downleft'])[0]
+    if v_dict['downright'] != '':
+        dis_downright = pre_ego_info_dict['position'][0] - traci.vehicle.getPosition(v_dict['downright'])[0]
+    if v_dict['upleft'] != '':
+        dis_upleft = traci.vehicle.getPosition(v_dict['upleft'])[0] - pre_ego_info_dict['position'][0]
+    if v_dict['upright'] != '':
+        dis_upright = traci.vehicle.getPosition(v_dict['upright'])[0] - pre_ego_info_dict['position'][0]
+    
+    if ((0 < dis_downleft <= 5 or 0 < dis_upleft < 5) and change_lane=='left') or ((0 < dis_downright <= 5 or 0 < dis_upright <= 5) and change_lane=='right'):
+        done = 1
+        agent.store_transition(all_vehicle, action_int, inf_car, np.zeros((7,3)), done)
+        df_record = df_record.append(pd.DataFrame([[episode, train_step, pre_ego_info_dict['position'][0], 
+                                                    target_lane, pre_ego_info_dict['LaneID'], 
+                                                    pre_ego_info_dict['speed'], action_int, pre_ego_info_dict['acc'], acc, change_lane, 
+                                                    inf_car, 0, 0, 0, 0, done, all_vehicle, np.zeros((7,3))]], columns = cols))
+        if change_lane=='left':
+            print("====================左左左左变道撞车车车车===================")
+            action_int  = action_int + 1
+        if change_lane=='right':
+            print("====================右右右右变道撞车车车车===================")
+            action_int  = action_int - 1
+        change_lane='keep'
+        done = 0
+        
+    
     
     # 变道处理
     if change_lane=='left':
@@ -326,16 +409,17 @@ def train(agent, control_vehicle, episode, train_step, target_lane):
         print('=====================collision==', traci.simulation.getCollidingVehiclesIDList(), control_vehicle)
         print("==========================发生了撞车=========================")
         collision=1
+        done = 1
         # 存储碰撞数据
-        agent.store_transition(all_vehicle, action_int, inf_car, np.zeros((7,3)))
+        agent.store_transition(all_vehicle, action_int, inf_car, np.zeros((7,3)), done)
         df_record = df_record.append(pd.DataFrame([[episode, train_step, pre_ego_info_dict['position'][0], 
                                             target_lane, pre_ego_info_dict['LaneID'], 
-                                            pre_ego_info_dict['speed'], action_int, acc, change_lane, 
-                                            inf_car, 0, 0, 0, all_vehicle, np.zeros((7,3))]], columns = cols))
+                                            pre_ego_info_dict['speed'], action_int, pre_ego_info_dict['acc'], acc, change_lane, 
+                                            inf_car, 0, 0, 0, 0, done, all_vehicle, np.zeros((7,3))]], columns = cols))
         return collision
     
     # 获取动作执行后的状态
-    new_all_vehicle, new_rel_up, _ = get_all(control_vehicle, 200)
+    new_all_vehicle, new_rel_up, v_dict = get_all(control_vehicle, 200)
     cur_ego_info_dict = {"speed": traci.vehicle.getSpeed(control_vehicle), 
                      "acc":traci.vehicle.getAcceleration(control_vehicle), 
                      "LaneID": traci.vehicle.getLaneID(control_vehicle), 
@@ -368,32 +452,46 @@ def train(agent, control_vehicle, episode, train_step, target_lane):
     r_comfort = ((np.abs(pre_ego_info_dict['acc']-cur_ego_info_dict['acc'])/0.1) ** 2) / 3600
 #    r_target_lane = -0.5 * abs(int(cur_ego_info_dict['LaneID'][-1]) - target_lane) # 与目标车道的差距绝对值，*0.5，分别为 0 -0.5 -1
     
+    r_side = 0
+    # 在变道的情况，且后方有车，且与后方车辆速度不相等的情况下，计算与后车的ttc
+    follower_ttc = 0
+    if change_lane != 'keep' and v_dict['down'] != '' and cur_ego_info_dict['speed'] != traci.vehicle.getSpeed(v_dict['down']):
+        follower_ttc = -(cur_ego_info_dict['position'][0] - traci.vehicle.getPosition(v_dict['down'])[0]) / (cur_ego_info_dict['speed'] - traci.vehicle.getSpeed(v_dict['down']))
+        print('follower space ', cur_ego_info_dict['position'][0] - traci.vehicle.getPosition(v_dict['down'])[0])
+        print('follower speed ', cur_ego_info_dict['speed'] - traci.vehicle.getSpeed(v_dict['down']))
+        print(f'follower_ttc: {follower_ttc}')
+        if 0 < follower_ttc < 4:
+            r_side = r_side + np.log(follower_ttc/4)
+    
 #    cur_reward = r_safe + r_efficiency - r_comfort + r_target_lane
-    cur_reward = r_safe + r_efficiency - r_comfort
+    cur_reward = r_safe + r_efficiency - r_comfort + r_side # bug !!!!!!!!!!!
     
 #    global df_record
-    df_record = df_record.append(pd.DataFrame([[episode, train_step, cur_ego_info_dict['position'][0], 
-                                                target_lane, cur_ego_info_dict['LaneID'], 
-                                                cur_ego_info_dict['speed'], action_int, acc, change_lane,
-                                                cur_reward, r_safe, r_efficiency, r_comfort, 
+    df_record = df_record.append(pd.DataFrame([[episode, train_step, pre_ego_info_dict['position'][0], 
+                                                target_lane, pre_ego_info_dict['LaneID'], 
+                                                pre_ego_info_dict['speed'], action_int, pre_ego_info_dict['acc'], acc, change_lane,
+                                                cur_reward, r_safe, r_efficiency, r_comfort, r_side, done, 
                                                 all_vehicle, new_all_vehicle]], columns = cols))
     
     # agent存储
-    agent.store_transition(all_vehicle, action_int, cur_reward, new_all_vehicle)
+    agent.store_transition(all_vehicle, action_int, cur_reward, new_all_vehicle, done)
+    if step<20000:
+        agent.learn()
     
     return collision
 
 
 def main_train():
-    a_dim = 9
+    a_dim = 15
     # 状态就是自己+六辆周围车的状态
     s_dim = 3*7
     #模型加载
     agent = DQN(s_dim, a_dim)
     
-    os.mkdir("result_record_sp8_ttc_co100")
+#    os.mkdir("result_record_dowa_sidettc_clcontrol1115")
+    agent.load_state_dict(torch.load('./1115/result_record_dowa_sidettc_clcontrol1115/net_params.pth'))
     
-    for epo in range(20000): # 测试时可以调小epo回合次数 
+    for epo in range(10): # 测试时可以调小epo回合次数 
         traci.start(sumoCmd)
         ego_index = 20 + epo % 100   # 选取中间车道第index辆出发的车为我们的自动驾驶车
         ego_index_str = '1_'+str(ego_index) # ego的id为'1_$index$', 如index为20,id='1_20'
@@ -420,7 +518,7 @@ def main_train():
             if ego_index_str in vehicle_list:
                 control_vehicle = ego_index_str
                 ego_show = True
-                traci.vehicle.setColor(control_vehicle, (128,128,128,255))
+                traci.vehicle.setColor(control_vehicle,  (0,225,0,255))
             # 2.2 如果此时自动驾驶车辆还未出现
             if ego_show == False:
                 traci.simulationStep() # 2个step出现1辆车
@@ -465,12 +563,12 @@ def main_train():
 
         traci.close(wait=True)
         # 保存
-        df_record.to_csv(f"result_record_sp8_ttc_co100/df_record_epo_{epo}.csv", index = False)
+#        df_record.to_csv(f"result_record_dowa_sidettc_clcontrol1115/df_record_epo_{epo}.csv", index = False)
 #        agent.save_net() 
 #        torch.save(agent.eval_net, './result_record_sp8_ttc_co100/eval_net.pkl')
 #        torch.save(agent.eval_net.state_dict(), './result_record_sp8_ttc_co100/eval_net_params.pkl')
 
-        torch.save(agent.state_dict(), './result_record_sp8_ttc_co100/net_params.pth') 
+#        torch.save(agent.state_dict(), './result_record_dowa_sidettc_clcontrol1115/net_params.pth') 
 
 
 
