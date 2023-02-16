@@ -27,11 +27,11 @@ class ReplayBuffer:
     batch_size
     """
 
-    def __init__(self, obs_dim: int, size: int, batch_size: int = 32):
+    def __init__(self, obs_dim: int, param_dim: int, size: int, batch_size: int = 32):
         self.obs_buf = np.zeros([size, obs_dim], dtype=np.float32)
         self.next_obs_buf = np.zeros([size, obs_dim], dtype=np.float32)
         self.acts_buf = np.zeros([size], dtype=np.float32)
-        self.acts_param_buf = np.zeros([size], dtype=np.float32)
+        self.acts_param_buf = np.zeros([size, param_dim], dtype=np.float32)
         self.rews_buf = np.zeros([size], dtype=np.float32)
         self.done_buf = np.zeros(size, dtype=np.float32)
         self.max_size, self.batch_size = size, batch_size
@@ -96,6 +96,7 @@ class QActor(nn.Module):
         
     def forward(self, state, action_parameters):
         x = torch.reshape(state, (-1, 21))  # 7*3变为1*21 torch.Size([1, 21])
+        x = x.float() 
         x = torch.cat((x, action_parameters), dim=1)
         q = self.feature_layer(x)
         
@@ -128,8 +129,9 @@ class ParamActor(nn.Module):
         
     def forward(self, state):
         x = torch.reshape(state, (-1, 21))
+        x = x.float() # 否则报错expected scalar type Float but found Double
         action = self.feature_layer(x)
-        action = torch.tanh(action)
+        action = torch.tanh(action) # n * 3维的action
         
         return action
         
@@ -138,7 +140,7 @@ class PDQNAgent(nn.Module):
     def __init__(
             self, 
             state_dim = 3*7, 
-            action_dim = 1, 
+            action_dim: int =1, 
             memory_size: int = 20000,
             batch_size: int = 32,
             epsilon_initial=1.0,
@@ -154,7 +156,7 @@ class PDQNAgent(nn.Module):
         self.device = torch.device('cpu')
         self.action_dim = action_dim # 1 维，输出1个连续动作 acc
         self.state_dim = state_dim
-        self.memory = ReplayBuffer(self.N_STATES, memory_size, batch_size)
+        self.memory_size = memory_size
         self.batch_size = batch_size
         self.lr_actor, self.lr_param = lr_actor, lr_param
         self.gamma = gamma
@@ -163,6 +165,7 @@ class PDQNAgent(nn.Module):
         self.tau_param = 0.001
         
         self._epsilon = epsilon_initial
+        self.epsilon_initial = epsilon_initial
         self.epsilon_final = epsilon_final
         self.epsilon_decay = epsilon_decay
         self._step = 0
@@ -173,9 +176,12 @@ class PDQNAgent(nn.Module):
         self.action_param_size = int(self.action_param_sizes.sum()) # 3
         self.action_param_max_numpy = np.array([3, 3, 3])
         self.action_param_min_numpy = np.array([-3, -3, -3])
-        self.action_parameter_range = (self.action_parameter_max_numpy - self.action_parameter_min_numpy)
-        self.action_parameter_offsets = self.action_parameter_sizes.cumsum() # 不知道干嘛的
-        self.action_parameter_offsets = np.insert(self.action_parameter_offsets, 0, 0)
+        self.action_param_range = torch.from_numpy((self.action_param_max_numpy - self.action_param_min_numpy)).float().to(self.device)
+        self.action_param_max = torch.from_numpy(self.action_param_max_numpy).float().to(self.device)
+        self.action_param_min = torch.from_numpy(self.action_param_min_numpy).float().to(self.device)
+        self.action_param_offsets = self.action_param_sizes.cumsum() # 不知道干嘛的
+        self.action_param_offsets = np.insert(self.action_param_offsets, 0, 0)
+        self.memory = ReplayBuffer(self.state_dim, self.action_param_size, self.memory_size, self.batch_size)
         
         self.actor = QActor(self.state_dim, self.num_action, self.action_param_size).to(self.device)
         self.actor_target = QActor(self.state_dim, self.num_action, self.action_param_size).to(self.device)
@@ -189,6 +195,7 @@ class PDQNAgent(nn.Module):
         self.loss_func = F.smooth_l1_loss
         self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=self.lr_actor)
         self.param_optimizer = torch.optim.Adam(self.param.parameters(), lr=self.lr_param)
+        
 
     def choose_action(self, state, train=True):
         if train:
@@ -200,24 +207,21 @@ class PDQNAgent(nn.Module):
 
             with torch.no_grad(): # 不生成计算图，减少显存开销
                 state = torch.tensor(state, device=self.device)
-                all_action_parameters = self.param.forward(state) # 3 维连续 param
+                all_action_parameters = self.param.forward(state) # 1*3 维连续 param
                 
                 if self._epsilon > np.random.random(): # 探索率随着迭代次数增加而减小
-                    action = np.random.randint(0, self.num_action) # 随机离散 action
-                    all_action_parameters = torch.from_numpy( # 在范围内的随机数，3 维连续 param 
+                    action = np.random.randint(0, self.num_action) # 离散 action 随机
+                    all_action_parameters = torch.from_numpy( # 3 维连续 param 随机数
                             np.random.uniform(self.action_param_min_numpy, self.action_param_max_numpy))
                 else:
                     # select maximum action
-                    Q_value = self.actor.forward(state, all_action_parameters) # 3 维离散动作
-#                        Q_value = self.actor.forward(state.unsqueeze(0), all_action_parameters.unsqueeze(0)) # unsqueeze 增加第0维 size为1
+                    Q_value = self.actor.forward(state, all_action_parameters) # 1*3 维 所有离散动作的Q_value
                     Q_value = Q_value.detach().cpu().numpy() # tensor 转换为 numpy格式
                     action = np.argmax(Q_value)
-#                        action = Q_value.max(1)[1].item()
+                    all_action_parameters = all_action_parameters.squeeze() # 变为3维 连续 param
 
                 all_action_parameters = all_action_parameters.cpu().data.numpy()
-                action_parameters = all_action_parameters[action]
-#                    offset = np.array([self.action_param_sizes[i] for i in range(action)], dtype=int).sum()
-#                    action_parameters = all_action_parameters[offset:offset + self.action_param_sizes[action]]
+                action_parameters = all_action_parameters[action] # all_action_parameters从1*3维，从第1维中选
         
         return action, action_parameters, all_action_parameters
                     
@@ -229,9 +233,9 @@ class PDQNAgent(nn.Module):
         if not inplace:
             grad = grad.clone()
         with torch.no_grad():
-            ind = torch.zeros(self.action_parameter_size, dtype=torch.long)
+            ind = torch.zeros(self.action_param_size, dtype=torch.long)
             for a in range(self.num_actions):
-                ind[self.action_parameter_offsets[a]:self.action_parameter_offsets[a+1]] = a
+                ind[self.action_param_offsets[a]:self.action_param_offsets[a+1]] = a
             # ind_tile = np.tile(ind, (self.batch_size, 1))
             ind_tile = ind.repeat(self.batch_size, 1).to(self.device)
             actual_index = ind_tile != batch_action_indices[:, np.newaxis]
@@ -245,9 +249,9 @@ class PDQNAgent(nn.Module):
             min_p = self.action_min
             rnge = self.action_range
         elif grad_type == "action_parameters":
-            max_p = self.action_parameter_max
-            min_p = self.action_parameter_min
-            rnge = self.action_parameter_range
+            max_p = self.action_param_max
+            min_p = self.action_param_min
+            rnge = self.action_param_range
         else:
             raise ValueError("Unhandled grad_type: '"+str(grad_type) + "'")
 
@@ -269,15 +273,17 @@ class PDQNAgent(nn.Module):
 
         return grad
     
-    def step(self, obs, act, act_param, rew, next_obs, done):
-        self._step += 1
+    # def step(self, obs, act, act_param, rew, next_obs, done):
+    #     self._step += 1
         
-        self.store_transition(obs, act, act_param, rew, next_obs, done)
-        if self._step >= self.batch_size:
-            self.learn()
-            self._learn_step += 1
+    #     self.store_transition(obs, act, act_param, rew, next_obs, done)
+    #     if self._step >= self.batch_size:
+    #         self.learn()
+    #         self._learn_step += 1
         
     def store_transition(self, obs, act, act_param, rew, next_obs, done):
+        self._step += 1
+        
         obs = np.reshape(obs, (-1, 1)) # 列数为1，行数-1根据列数来确定
         obs = np.squeeze(obs)
         act = np.reshape(act, (-1, 1))
@@ -291,35 +297,31 @@ class PDQNAgent(nn.Module):
         self.memory.store(*self.transition) # store 没有返回值
 
     def learn(self):
-        # if self._step < self.batch_size:
-        #     return
-        # if self._learn_step % self.TARGET_UPDATE_ITER == 0:
-        #     self.actor_target.load_state_dict(self.actor.state_dict())
-        #     self.param_target.load_state_dict(self.param.state_dict())
-        
-        samples = self.memory.sample(self.batch_size)
+        self._learn_step += 1        
+        samples = self.memory.sample_batch()
         
         # compute loss
         device = self.device  # for shortening the following lines
         b_state = torch.FloatTensor(samples["obs"]).to(device)
         b_next_state = torch.FloatTensor(samples["next_obs"]).to(device)
-        b_action = torch.LongTensor(samples["acts"].reshape(-1, 1)).to(device)
-        b_action_param = torch.FloatTensor(samples["act_param"].reshape(-1, 1)).to(device)
+        b_action = torch.LongTensor(samples["act"].reshape(-1, 1)).to(device)
+        b_action_param = torch.FloatTensor(samples["act_param"]).to(device)
         b_reward = torch.FloatTensor(samples["rew"].reshape(-1, 1)).to(device)
         b_done = torch.FloatTensor(samples["done"].reshape(-1, 1)).to(device)
 
         # -----------------------optimize Q actor------------------------
         with torch.no_grad():
-            next_action_parameters = self.param_target.forward(b_next_state)
-            next_q_value = self.actor_target(b_next_state, next_action_parameters)
+            next_action_parameters = self.param_target.forward(b_next_state) # b_next_state torch.Size([32, 21])
+            next_q_value = self.actor_target(b_next_state, next_action_parameters) # [32, 21] [32, 3]
             q_prime = torch.max(next_q_value, 1, keepdim=True)[0].squeeze()
             # Compute the TD error
             target = b_reward + (1 - b_done) * self.gamma * q_prime
         
         # Compute current Q-values using policy network
-        q_values = self.actor(b_state, b_action_param)
+        q_values = self.actor(b_state, b_action_param) # [32, 21] [32, 3]
         y_predicted = q_values.gather(1, b_action.view(-1, 1)).squeeze() # gather函数可以看作一种索引
-        loss_actor = self.loss_func(y_predicted, target)
+        loss_actor = self.loss_func(y_predicted, target) # loss 是torch.Tensor的形式
+        ret_loss_actor = loss_actor.detach().cpu().numpy()
 
         self.actor_optimizer.zero_grad()
         loss_actor.backward()
@@ -342,8 +344,8 @@ class PDQNAgent(nn.Module):
         delta_a = deepcopy(action_params.grad.data)
         action_params = self.param(Variable(b_state))
         delta_a[:] = self._invert_gradients(delta_a, action_params, grad_type="action_parameters", inplace=True)
-        if self.zero_index_gradients:
-            delta_a[:] = self._zero_index_gradients(delta_a, batch_action_indices=b_action, inplace=True)
+        # if self.zero_index_gradients:
+        #     delta_a[:] = self._zero_index_gradients(delta_a, batch_action_indices=b_action, inplace=True)
         
         out = -torch.mul(delta_a, action_params)
         self.param.zero_grad()
@@ -351,10 +353,12 @@ class PDQNAgent(nn.Module):
         if self.clip_grad > 0:
             torch.nn.utils.clip_grad_norm_(self.param.parameters(), self.clip_grad)
         
-        self.param_optimiser.step()
+        self.param_optimizer.step()
         
         self.soft_update_target_network(self.actor, self.actor_target, self.tau_actor)
         self.soft_update_target_network(self.param, self.param_target, self.tau_param)
+        
+        return ret_loss_actor, Q_loss
 
     def soft_update_target_network(self, net, target_net, tau):
         for param_target, param in zip(target_net.parameters(), net.parameters()):
