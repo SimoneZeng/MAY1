@@ -222,6 +222,17 @@ class PDQNAgent(nn.Module):
 
                 all_action_parameters = all_action_parameters.cpu().data.numpy()
                 action_parameters = all_action_parameters[action] # all_action_parameters从1*3维，从第1维中选
+        else:
+            with torch.no_grad(): 
+                state = torch.tensor(state, device=self.device)
+                all_action_parameters = self.param.forward(state) # 1*3 维连续 param
+                Q_value = self.actor.forward(state, all_action_parameters) # 1*3 维 所有离散动作的Q_value
+                Q_value = Q_value.detach().cpu().numpy() # tensor 转换为 numpy格式
+                action = np.argmax(Q_value)
+                all_action_parameters = all_action_parameters.squeeze() # 变为3维 连续 param
+            
+                all_action_parameters = all_action_parameters.cpu().data.numpy()
+                action_parameters = all_action_parameters[action] # all_action_parameters从1*3维，从第1维中选
         
         return action, action_parameters, all_action_parameters
                     
