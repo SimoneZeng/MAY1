@@ -142,18 +142,21 @@ class PDQNAgent(nn.Module):
             state_dim = 3*7, 
             action_dim: int =1, 
             memory_size: int = 20000,
-            batch_size: int = 32,
+            batch_size: int = 128, # former 32
             epsilon_initial=1.0,
             epsilon_final=0.05,
             epsilon_decay=2000,
-            gamma=0.99,
+            gamma=0.9, # former 0.99
             lr_actor=0.001,
             lr_param=0.0001,
             TARGET_UPDATE_ITER: int = 1000,
     ):
         super(PDQNAgent, self).__init__()
         
-        self.device = torch.device('cpu')
+        self.device = torch.device(
+            "cuda" if torch.cuda.is_available() else "cpu"
+        )
+        print('device ', self.device)
         self.action_dim = action_dim # 1 维，输出1个连续动作 acc
         self.state_dim = state_dim
         self.memory_size = memory_size
@@ -207,12 +210,19 @@ class PDQNAgent(nn.Module):
 
             with torch.no_grad(): # 不生成计算图，减少显存开销
                 state = torch.tensor(state, device=self.device)
-                all_action_parameters = self.param.forward(state) # 1*3 维连续 param
+                all_action_parameters = self.param.forward(state) # 1*3 维连续 param 
                 
                 if self._epsilon > np.random.random(): # 探索率随着迭代次数增加而减小
-                    action = np.random.randint(0, self.num_action) # 离散 action 随机
-                    all_action_parameters = torch.from_numpy( # 3 维连续 param 随机数
-                            np.random.uniform(self.action_param_min_numpy, self.action_param_max_numpy))
+                    if self._step < self.memory_size: # 开始学习前，变道随机，acc随机
+                        action = np.random.randint(0, self.num_action) # 离散 action 随机
+                        all_action_parameters = torch.from_numpy( # 3 维连续 param 随机数
+                                np.random.uniform(self.action_param_min_numpy, self.action_param_max_numpy))
+                    else: # 开始学习前，变道 不 随机，acc随机
+                        all_action_parameters = torch.from_numpy(
+                                np.random.uniform(self.action_param_min_numpy, self.action_param_max_numpy))
+                        Q_value = self.actor.forward(state, all_action_parameters)
+                        Q_value = Q_value.detach().cpu().numpy()
+                        action = np.argmax(Q_value)
                 else:
                     # select maximum action
                     Q_value = self.actor.forward(state, all_action_parameters) # 1*3 维 所有离散动作的Q_value
