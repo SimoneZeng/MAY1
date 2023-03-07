@@ -213,16 +213,20 @@ class PDQNAgent(nn.Module):
                 all_action_parameters = self.param.forward(state) # 1*3 维连续 param 
                 
                 if self._epsilon > np.random.random(): # 探索率随着迭代次数增加而减小
+                    # if self._step < self.batch_size:    
                     if self._step < self.memory_size: # 开始学习前，变道随机，acc随机
                         action = np.random.randint(0, self.num_action) # 离散 action 随机
                         all_action_parameters = torch.from_numpy( # 3 维连续 param 随机数
                                 np.random.uniform(self.action_param_min_numpy, self.action_param_max_numpy))
                     else: # 开始学习前，变道 不 随机，acc随机
                         all_action_parameters = torch.from_numpy(
-                                np.random.uniform(self.action_param_min_numpy, self.action_param_max_numpy))
+                                np.random.uniform(self.action_param_min_numpy, self.action_param_max_numpy)).to(self.device)
+                        all_action_parameters = all_action_parameters.unsqueeze(0).to(torch.float32) # np是64的精度，转为32的精度
+                        # print('all_action_parameters size ', all_action_parameters.shape)
                         Q_value = self.actor.forward(state, all_action_parameters)
                         Q_value = Q_value.detach().cpu().numpy()
                         action = np.argmax(Q_value)
+                        all_action_parameters = all_action_parameters.squeeze()
                 else:
                     # select maximum action
                     Q_value = self.actor.forward(state, all_action_parameters) # 1*3 维 所有离散动作的Q_value
