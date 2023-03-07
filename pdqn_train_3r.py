@@ -30,7 +30,7 @@ sys.path.append(sumo_path + "/tools/xml")
 import traci # 在ubuntu中，traci和sumolib需要在tools地址引入之后import
 from sumolib import checkBinary
 
-TRAIN = True
+TRAIN = False # False True
 
 # os.environ['CUDA_VISIBLE_DEVICES']='0, 1'  # 显卡使用
 
@@ -412,6 +412,7 @@ def train(agent, control_vehicle, episode, target_lane):
     # agent存储
     agent.store_transition(all_vehicle, action_lc_int, all_action_parameters, cur_reward, new_all_vehicle, done)
     if TRAIN and (agent._step > agent.memory_size):
+    # if TRAIN and (agent._step > agent.batch_size):
         loss_actor, Q_loss = agent.learn()
     
     return collision, loss_actor, Q_loss
@@ -428,7 +429,7 @@ def main_train():
     
     os.mkdir("result_record_pdqn_3r_test")
     if not TRAIN:
-        agent.load_state_dict(torch.load('./0214/result_record_pdqn_3r/net_params.pth', map_location=torch.device('cpu')))
+        agent.load_state_dict(torch.load('./0307/result_record_pdqn_3r/net_params.pth', map_location=torch.device('cpu')))
     
     for epo in range(20000): # 测试时可以调小epo回合次数 
         traci.start(sumoCmd)
@@ -445,7 +446,7 @@ def main_train():
         
         print("++++++++++++++++++++++++++++++++++++++++++++++++")
         print(f"++++++++++++++++++++{epo}+++++++++++++++++++++++++")
-        print("++++++++++++++++++++++++++++++++++++++++++++++++")
+        print("++++++++++++++++++ result_record_pdqn_3r_test +++++++++++++++++++++++")
         
         
         while traci.simulation.getMinExpectedNumber() > 0:
@@ -508,9 +509,9 @@ def main_train():
         df_record.to_csv(f"result_record_pdqn_3r_test/df_record_epo_{epo}.csv", index = False)
         torch.save(agent.state_dict(), './result_record_pdqn_3r_test/net_params.pth') 
         
-        # agent.memory.acts_param_buf.to_csv('./result_record_pdqn_3r_test/acts_param_buf.csv')
+        # agent.memory.acts_param_buf.to_csv('./result_record_pdqn_3r/acts_param_buf.csv')
 
-        # pd.DataFrame(data=epsilons).to_csv('./result_record_pdqn_3r_test/epsilons.csv')
+        # pd.DataFrame(data=epsilons).to_csv('./result_record_pdqn_3r/epsilons.csv')
         pd.DataFrame(data=losses_actor).to_csv('./result_record_pdqn_3r_test/losses.csv')
 
 
