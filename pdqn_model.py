@@ -2,8 +2,17 @@
 """
 Created on Sat Jan 14 14:45:19 2023
 
-借鉴学长的pdqn
+借鉴师兄的pdqn
 github中的 mpdqn
+
+库版本
+python 3.8.15
+conda 本地 conda 4.12.0 服务器 conda 22.9.0
+torch 本地 1.11.0+cpu 服务器 1.13.1
+numpy 本地 1.21.6 服务器 1.23.4
+pandas 本地 1.3.5 服务器 1.3.5
+matplotlib 3.6.2
+
 
 @author: Skye
 """
@@ -218,11 +227,10 @@ class PDQNAgent(nn.Module):
                         action = np.random.randint(0, self.num_action) # 离散 action 随机
                         all_action_parameters = torch.from_numpy( # 3 维连续 param 随机数
                                 np.random.uniform(self.action_param_min_numpy, self.action_param_max_numpy))
-                    else: # 开始学习前，变道 不 随机，acc随机
+                    else: # 开始学习后，变道 不 随机，acc随机
                         all_action_parameters = torch.from_numpy(
                                 np.random.uniform(self.action_param_min_numpy, self.action_param_max_numpy)).to(self.device)
                         all_action_parameters = all_action_parameters.unsqueeze(0).to(torch.float32) # np是64的精度，转为32的精度
-                        # print('all_action_parameters size ', all_action_parameters.shape)
                         Q_value = self.actor.forward(state, all_action_parameters)
                         Q_value = Q_value.detach().cpu().numpy()
                         action = np.argmax(Q_value)
