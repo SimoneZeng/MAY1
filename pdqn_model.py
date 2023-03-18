@@ -108,6 +108,7 @@ class QActor(nn.Module):
         x = x.float() 
         x = torch.cat((x, action_parameters), dim=1)
         q = self.feature_layer(x)
+        # print("qqqqqqq ", q)
         
         return q
        
@@ -186,8 +187,8 @@ class PDQNAgent(nn.Module):
         self.num_action = 3 # 3 kinds of discrete action
         self.action_param_sizes = np.array([self.action_dim, self.action_dim, self.action_dim]) # 1, 1, 1
         self.action_param_size = int(self.action_param_sizes.sum()) # 3
-        self.action_param_max_numpy = np.array([3, 3, 3])
-        self.action_param_min_numpy = np.array([-3, -3, -3])
+        self.action_param_max_numpy = np.array([1, 1, 1]) # np.array([3, 3, 3]) 
+        self.action_param_min_numpy = np.array([-1, -1, -1]) # np.array([3, 3, 3]) 
         self.action_param_range = torch.from_numpy((self.action_param_max_numpy - self.action_param_min_numpy)).float().to(self.device)
         self.action_param_max = torch.from_numpy(self.action_param_max_numpy).float().to(self.device)
         self.action_param_min = torch.from_numpy(self.action_param_min_numpy).float().to(self.device)
@@ -256,6 +257,7 @@ class PDQNAgent(nn.Module):
                 all_action_parameters = all_action_parameters.cpu().data.numpy()
                 action_parameters = all_action_parameters[action] # all_action_parameters从1*3维，从第1维中选
         
+        action_parameters = 3 * action_parameters
         return action, action_parameters, all_action_parameters
                     
 
