@@ -159,7 +159,8 @@ class PDQNAgent(nn.Module):
             gamma=0.9, # former 0.99
             lr_actor=0.001,
             lr_param=0.0001,
-            TARGET_UPDATE_ITER: int = 1000,
+            acc3 = True, # action_acc = 3 * action_parameters
+            NormalNoise = False, # 高斯噪声
     ):
         super(PDQNAgent, self).__init__()
         
@@ -176,6 +177,9 @@ class PDQNAgent(nn.Module):
         self.clip_grad = 10
         self.tau_actor = 0.01
         self.tau_param = 0.001
+        
+        self.acc3 = acc3
+        self.NormalNoise = NormalNoise
         
         self._epsilon = epsilon_initial
         self.epsilon_initial = epsilon_initial
@@ -223,29 +227,38 @@ class PDQNAgent(nn.Module):
                 all_action_parameters = self.param.forward(state) # 1*3 维连续 param 
                 
                 if self._epsilon > np.random.random(): # 探索率随着迭代次数增加而减小
-                    # if self._step < self.batch_size:    
-                    if self._step < self.memory_size: # 开始学习前，变道随机，acc随机
+                    if self._step < self.batch_size:    
+                    # if self._step < self.memory_size: # 开始学习前，变道随机，acc随机
                         action = np.random.randint(0, self.num_action) # 离散 action 随机
-                        all_action_parameters = torch.from_numpy( # 3 维连续 param 随机数
-                                np.random.uniform(self.action_param_min_numpy, self.action_param_max_numpy))
-                    else: # 开始学习后，变道 不 随机，acc随机
-                        all_action_parameters = torch.from_numpy(
-                                np.random.uniform(self.action_param_min_numpy, self.action_param_max_numpy)).to(self.device)
-                        all_action_parameters = all_action_parameters.unsqueeze(0).to(torch.float32) # np是64的精度，转为32的精度
-                        Q_value = self.actor.forward(state, all_action_parameters)
-                        Q_value = Q_value.detach().cpu().numpy()
-                        action = np.argmax(Q_value)
-                        all_action_parameters = all_action_parameters.squeeze()
-                else:
-                    # select maximum action
+                        all_action_parameters = np.random.uniform(self.action_param_min_numpy, self.action_param_max_numpy)
+                    else: # 开始学习后，变道 不 随机
+                        if self.NormalNoise: # acc加噪声
+                            Q_value = self.actor.forward(state, all_action_parameters) 
+                            Q_value = Q_value.detach().cpu().numpy()
+                            action = np.argmax(Q_value)
+                            print("all_action_parameters before", all_action_parameters)
+                            all_action_parameters = all_action_parameters.squeeze()
+                            all_action_parameters = all_action_parameters.cpu().data.numpy()
+                            all_action_parameters = np.clip(np.random.normal(all_action_parameters,scale=0.02,size=3), -3, 3)
+                            print("all_action_parameters after", all_action_parameters)
+                        if not self.NormalNoise: # acc 随机
+                            all_action_parameters = torch.from_numpy(
+                                    np.random.uniform(self.action_param_min_numpy, self.action_param_max_numpy)).to(self.device)
+                            all_action_parameters = all_action_parameters.unsqueeze(0).to(torch.float32) # np是64的精度，转为32的精度
+                            Q_value = self.actor.forward(state, all_action_parameters)
+                            Q_value = Q_value.detach().cpu().numpy()
+                            action = np.argmax(Q_value) # 得到随机 all_action_parameters 下的离散action
+                            all_action_parameters = all_action_parameters.squeeze() # 变为3维 连续 param
+                            all_action_parameters = all_action_parameters.cpu().data.numpy()
+                else: # select maximum action
                     Q_value = self.actor.forward(state, all_action_parameters) # 1*3 维 所有离散动作的Q_value
                     Q_value = Q_value.detach().cpu().numpy() # tensor 转换为 numpy格式
                     action = np.argmax(Q_value)
                     all_action_parameters = all_action_parameters.squeeze() # 变为3维 连续 param
+                    all_action_parameters = all_action_parameters.cpu().data.numpy()
 
-                all_action_parameters = all_action_parameters.cpu().data.numpy()
                 action_parameters = all_action_parameters[action] # all_action_parameters从1*3维，从第1维中选
-        else:
+        if not train:
             with torch.no_grad(): 
                 state = torch.tensor(state, device=self.device)
                 all_action_parameters = self.param.forward(state) # 1*3 维连续 param
@@ -257,7 +270,8 @@ class PDQNAgent(nn.Module):
                 all_action_parameters = all_action_parameters.cpu().data.numpy()
                 action_parameters = all_action_parameters[action] # all_action_parameters从1*3维，从第1维中选
         
-        action_parameters = 3 * action_parameters
+        if self.acc3:
+            action_parameters = 3 * action_parameters
         return action, action_parameters, all_action_parameters
                     
 
