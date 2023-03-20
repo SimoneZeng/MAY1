@@ -156,7 +156,7 @@ class QActor_init(nn.Module):
         all q values of discrete actions
     '''
     def __init__(self, state_size, action_size, action_param_size):
-        super(QActor, self).__init__()
+        super(QActor_init, self).__init__()
         self.state_size = state_size
         self.action_size = action_size
         self.action_param_size = action_param_size
@@ -195,7 +195,7 @@ class ParamActor_init(nn.Module):
         all the optimal parameter of continuous action
     '''
     def __init__(self, state_size, action_param_size):
-        super(ParamActor, self).__init__()
+        super(ParamActor_init, self).__init__()
         self.state_size = state_size
         self.action_param_size = action_param_size
         
