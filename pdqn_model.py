@@ -144,7 +144,82 @@ class ParamActor(nn.Module):
         action = torch.tanh(action) # n * 3维的action
         
         return action
+
+
+class QActor_init(nn.Module):
+    '''
+    params:
+        state_size, state space
+        action_size, discrete action space
+        action_param_size, the parameter of continuous action
+    return:
+        all q values of discrete actions
+    '''
+    def __init__(self, state_size, action_size, action_param_size):
+        super(QActor, self).__init__()
+        self.state_size = state_size
+        self.action_size = action_size
+        self.action_param_size = action_param_size
         
+        inputSize = self.state_size + self.action_param_size
+        
+        # set common feature layer
+        self.feature_layer = nn.Sequential(
+            nn.Linear(inputSize, 128), 
+            nn.ReLU(),
+            nn.Linear(128, 256),
+            nn.ReLU(),
+            nn.Linear(256, self.action_size),
+        )
+        
+        for layer in self.feature_layer:
+            if isinstance(layer, nn.Linear):
+                nn.init.kaiming_normal_(layer.weight)
+        
+    def forward(self, state, action_parameters):
+        x = torch.reshape(state, (-1, 21))  # 7*3变为1*21 torch.Size([1, 21])
+        x = x.float() 
+        x = torch.cat((x, action_parameters), dim=1)
+        q = self.feature_layer(x)
+        # print("qqqqqqq ", q)
+        
+        return q
+       
+        
+class ParamActor_init(nn.Module):
+    '''
+    params:
+        state_size, state space
+        action_param_size, the parameter of continuous action
+    return:
+        all the optimal parameter of continuous action
+    '''
+    def __init__(self, state_size, action_param_size):
+        super(ParamActor, self).__init__()
+        self.state_size = state_size
+        self.action_param_size = action_param_size
+        
+        inputSize = self.state_size
+        
+        # set common feature layer
+        self.feature_layer = nn.Sequential(
+            nn.Linear(inputSize, 128), 
+            nn.ReLU(),
+            nn.Linear(128, 256),
+            nn.ReLU(),
+            nn.Linear(256, self.action_param_size),
+        )
+        for layer in self.feature_layer:
+            if isinstance(layer, nn.Linear):
+                nn.init.kaiming_normal_(layer.weight)
+                
+    def forward(self, state):
+        x = torch.reshape(state, (-1, 21))
+        x = x.float() # 否则报错expected scalar type Float but found Double
+        action = self.feature_layer(x)
+        action = torch.tanh(action) # n * 3维的action
+        
+        return action        
 
 class PDQNAgent(nn.Module):
     def __init__(
@@ -161,6 +236,7 @@ class PDQNAgent(nn.Module):
             lr_param=0.0001,
             acc3 = True, # action_acc = 3 * action_parameters
             NormalNoise = False, # 高斯噪声
+            Kaiming_normal = False, # 网络参数初始化
     ):
         super(PDQNAgent, self).__init__()
         
@@ -180,6 +256,7 @@ class PDQNAgent(nn.Module):
         
         self.acc3 = acc3
         self.NormalNoise = NormalNoise
+        self.Kaiming_normal = Kaiming_normal
         
         self._epsilon = epsilon_initial
         self.epsilon_initial = epsilon_initial
@@ -200,12 +277,20 @@ class PDQNAgent(nn.Module):
         self.action_param_offsets = np.insert(self.action_param_offsets, 0, 0)
         self.memory = ReplayBuffer(self.state_dim, self.action_param_size, self.memory_size, self.batch_size)
         
-        self.actor = QActor(self.state_dim, self.num_action, self.action_param_size).to(self.device)
-        self.actor_target = QActor(self.state_dim, self.num_action, self.action_param_size).to(self.device)
+        if self.Kaiming_normal:
+            self.actor = QActor_init(self.state_dim, self.num_action, self.action_param_size).to(self.device)
+            self.actor_target = QActor_init(self.state_dim, self.num_action, self.action_param_size).to(self.device)
+        else:
+            self.actor = QActor(self.state_dim, self.num_action, self.action_param_size).to(self.device)
+            self.actor_target = QActor(self.state_dim, self.num_action, self.action_param_size).to(self.device)
         self.actor_target.load_state_dict(self.actor.state_dict())
         self.actor_target.eval()  # 不启用 BatchNormalization 和 Dropout
-        self.param = ParamActor(self.state_dim, self.action_param_size,).to(self.device)
-        self.param_target = ParamActor(self.state_dim, self.action_param_size,).to(self.device)
+        if self.Kaiming_normal:
+            self.param = ParamActor_init(self.state_dim, self.action_param_size,).to(self.device)
+            self.param_target = ParamActor_init(self.state_dim, self.action_param_size,).to(self.device)
+        else:
+            self.param = ParamActor(self.state_dim, self.action_param_size,).to(self.device)
+            self.param_target = ParamActor(self.state_dim, self.action_param_size,).to(self.device)
         self.param_target.load_state_dict(self.param.state_dict())
         self.param_target.eval()
         
@@ -227,8 +312,8 @@ class PDQNAgent(nn.Module):
                 all_action_parameters = self.param.forward(state) # 1*3 维连续 param 
                 
                 if self._epsilon > np.random.random(): # 探索率随着迭代次数增加而减小
-                    if self._step < self.batch_size:    
-                    # if self._step < self.memory_size: # 开始学习前，变道随机，acc随机
+                    # if self._step < self.batch_size:    
+                    if self._step < self.memory_size: # 开始学习前，变道随机，acc随机
                         action = np.random.randint(0, self.num_action) # 离散 action 随机
                         all_action_parameters = np.random.uniform(self.action_param_min_numpy, self.action_param_max_numpy)
                     else: # 开始学习后，变道 不 随机
