@@ -437,23 +437,23 @@ class PDQNAgent(nn.Module):
         # compute loss
         device = self.device  # for shortening the following lines
         b_state = torch.FloatTensor(samples["obs"]).to(device)
-        b_next_state = torch.FloatTensor(samples["next_obs"]).to(device)
+        b_next_state = torch.FloatTensor(samples["next_obs"]).to(device) # b_next_state torch.Size([batch, 21])
         b_action = torch.LongTensor(samples["act"].reshape(-1, 1)).to(device)
         b_action_param = torch.FloatTensor(samples["act_param"]).to(device)
-        b_reward = torch.FloatTensor(samples["rew"].reshape(-1, 1)).to(device)
+        b_reward = torch.FloatTensor(samples["rew"].reshape(-1, 1)).to(device) # b_reward torch.Size([128, 1])
         b_done = torch.FloatTensor(samples["done"].reshape(-1, 1)).to(device)
 
         # -----------------------optimize Q actor------------------------
         with torch.no_grad():
-            next_action_parameters = self.param_target.forward(b_next_state) # b_next_state torch.Size([32, 21])
-            next_q_value = self.actor_target(b_next_state, next_action_parameters) # [32, 21] [32, 3]
-            q_prime = torch.max(next_q_value, 1, keepdim=True)[0].squeeze()
+            next_action_parameters = self.param_target.forward(b_next_state) # next_action_parameters torch.Size([batch, 3])
+            next_q_value = self.actor_target(b_next_state, next_action_parameters) # next_q_value torch.Size([batch, 3])
+            q_prime = torch.max(next_q_value, 1, keepdim=True)[0] # q_prime torch.Size([128, 1])
             # Compute the TD error
-            target = b_reward + (1 - b_done) * self.gamma * q_prime
+            target = b_reward + (1 - b_done) * self.gamma * q_prime # target torch.Size([128, 1])
         
         # Compute current Q-values using policy network
-        q_values = self.actor(b_state, b_action_param) # [32, 21] [32, 3]
-        y_predicted = q_values.gather(1, b_action.view(-1, 1)).squeeze() # gather函数可以看作一种索引
+        q_values = self.actor(b_state, b_action_param) # q_values torch.Size([128, 3])
+        y_predicted = q_values.gather(1, b_action.view(-1, 1)) # y_predicted torch.Size([128, 1])
         loss_actor = self.loss_func(y_predicted, target) # loss 是torch.Tensor的形式
         ret_loss_actor = loss_actor.detach().cpu().numpy()
 
