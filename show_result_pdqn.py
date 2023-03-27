@@ -19,22 +19,28 @@ from tqdm import tqdm
 
 memory_size = 20000 # 20000 200000 bmem
 TRAIN = True # True False
+PRETRAIN = True # True False
+
+record_dir = './0325/result_record_pdqn_3r_6'
 
 # 1. 整理每个epo的数据，获得df_all_epo
 cols = ['epo', 'train_step', 'position_y', 'target_lane', 'lane', 'r_avg', 'r_sum', 'dis_to_target_lane']
 df_all_epo = pd.DataFrame(columns = cols)
-inf_car = -100
+inf_car = -10 # -10 -100
 
 fail_cnt = 0 # one_file中没有结果
-csv_cnt = len([n for n in os.listdir('./0319/result_record_pdqn_3r_init_inf')]) # 统计文件夹下的文件个数
+csv_cnt = len([n for n in os.listdir(record_dir)]) # 统计文件夹下的文件个数
 
 for i in tqdm(range(csv_cnt-5)):
-    if os.path.getsize(f"./0319/result_record_pdqn_3r_init_inf/df_record_epo_{i}.csv") > 0:
-        one_file = pd.read_csv(f"./0319/result_record_pdqn_3r_init_inf/df_record_epo_{i}.csv")
-        # one_file = one_file.drop(index = one_file[(one_file['r']==-1)].index.tolist()) # 去掉撞墙时r为-1的记录，否则某些time step重复记录了两次
+    if os.path.getsize(f"{record_dir}/df_record_epo_{i}.csv") > 0:
+        if PRETRAIN and (i%2 == 1): # 去除预训练的步骤
+            continue
+        one_file = pd.read_csv(f"{record_dir}/df_record_epo_{i}.csv")
+        one_file = one_file.drop(index = one_file[(one_file['r']==-1)].index.tolist()) # 去掉撞墙时r为-1的记录，否则某些time step重复记录了两次
         # one_file = one_file.drop(index = one_file[(one_file['r']==inf_car )].index.tolist()) # 去掉最后一条为-3的 -100
         # 惩罚都为 -10 
         one_file = one_file.drop(index = one_file[(one_file['r']==-10 )].index.tolist()) 
+        one_file = one_file.drop(index = one_file[(one_file['r']==-100 )].index.tolist()) 
     
         if len(one_file) >= 2:
             last_line = one_file.iloc[-1,:]
@@ -56,10 +62,10 @@ for i in tqdm(range(csv_cnt-5)):
 
 del i, last_line
 
-# df_all_epo.to_csv("./0319/result_record_pdqn_3r_init_inf/all_final_record.csv", index = False)
+# df_all_epo.to_csv("{record_dir}/all_final_record.csv", index = False)
 
 # 绘图
-# df_all_epo = pd.read_csv("./0319/result_record_pdqn_3r_init_inf/all_final_record.csv")
+# df_all_epo = pd.read_csv("{record_dir}/all_final_record.csv")
 df_all_epo = df_all_epo.drop(index = df_all_epo[(df_all_epo['position_y']==0)].index.tolist()) # 去掉没有行驶到1100m的
 
 
@@ -148,11 +154,11 @@ cols = ['epo', 'train_step', 'position_y', 'r_safe', 'collision_reason']
 co_all_epo = pd.DataFrame(columns = cols)
 
 fail_cnt = 0 # one_file中没有结果
-csv_cnt = len([n for n in os.listdir('./0319/result_record_pdqn_3r_init_inf')]) # 统计文件夹下的文件个数
+csv_cnt = len([n for n in os.listdir(record_dir)]) # 统计文件夹下的文件个数
 
 for i in tqdm(range(csv_cnt-5)): # 减去两个模型保存文件的数量
-    if os.path.getsize(f"./0319/result_record_pdqn_3r_init_inf") > 0:
-        one_file = pd.read_csv(f"./0319/result_record_pdqn_3r_init_inf/df_record_epo_{i}.csv")
+    if os.path.getsize(record_dir) > 0:
+        one_file = pd.read_csv(f"{record_dir}/df_record_epo_{i}.csv")
         
         # 1.如果epo中有2条以上记录
         if len(one_file) >= 2:
@@ -183,7 +189,7 @@ for i in tqdm(range(csv_cnt-5)): # 减去两个模型保存文件的数量
 
 
 co_all_epo_drop_random = co_all_epo[(co_all_epo['epo'] >= start_train)]
-co_all_epo_drop_random.to_csv("./0319/result_record_pdqn_3r_init_inf/all_collision_record.csv", index = False)
+co_all_epo_drop_random.to_csv(f"{record_dir}/all_collision_record.csv", index = False)
 print("epo count after train ", len(co_all_epo_drop_random) )
 analysis = co_all_epo_drop_random['collision_reason'].value_counts()
 print(analysis) # 统计每一类 collision_reason 的个数
@@ -199,7 +205,7 @@ if 'beginning collision' in analysis.index:
     print('beginning collision % ', analysis['beginning collision']/len(co_all_epo_drop_random))
 
 df_all_epo = pd.merge(df_all_epo, co_all_epo[['epo', 'collision_reason']], on='epo') # 把collision_reason链接到df_all_epo中
-df_all_epo.to_csv("./0319/result_record_pdqn_3r_init_inf/all_final_record.csv", index = False)
+df_all_epo.to_csv(f"{record_dir}/all_final_record.csv", index = False)
 # dis_to_target_lane_mean = df_all_epo[df_all_epo['epo'] > start_train]['dis_to_target_lane'].mean()
 # print("dis_to_target_lane_mean ", dis_to_target_lane_mean)
 
@@ -207,12 +213,12 @@ df_all_epo.to_csv("./0319/result_record_pdqn_3r_init_inf/all_final_record.csv", 
 
 
 # 统计最大的 r_safe
-# csv_cnt = len([n for n in os.listdir('./0319/result_record_pdqn_3r_init_inf_3r')]) # 统计文件夹下的文件个数
+# csv_cnt = len([n for n in os.listdir(record_dir)]) # 统计文件夹下的文件个数
 # min_r_safe = 0
 
 # for i in tqdm(range(csv_cnt-3)): # 减去两个模型保存文件的数量
-#     if os.path.getsize(f"./0319/result_record_pdqn_3r_init_inf_3r") > 0:
-#         one_file = pd.read_csv(f"./0319/result_record_pdqn_3r_init_inf_3r/df_record_epo_{i}.csv")
+#     if os.path.getsize(record_dir) > 0:
+#         one_file = pd.read_csv(f"{record_dir}/df_record_epo_{i}.csv")
 #         one_min = one_file['r_safe'].min()
 #         if one_min < min_r_safe:
 #             min_r_safe = one_min
@@ -221,9 +227,10 @@ df_all_epo.to_csv("./0319/result_record_pdqn_3r_init_inf/all_final_record.csv", 
 #        
 
 
-# losses = pd.read_csv("./0319/result_record_pdqn_3r_init_inf/losses.csv")
-# losses_cut = losses.iloc[20000:]
-# plt.plot(losses_cut['0'])
+losses = pd.read_csv(f"{record_dir}/losses.csv")
+losses_cut = losses.iloc[20000:]
+# plt.plot(losses_cut['0']) # 折线图
+plt.scatter(losses_cut.index, losses_cut['0'],s=1, alpha=0.05) # 散点图 s点大小 alpha 透明度 
 
 # 统计模型指标
 print('r_avg', df_all_epo[-1000:]['r_avg'].mean())
