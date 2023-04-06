@@ -18,10 +18,10 @@ import os
 from tqdm import tqdm
 
 memory_size = 20000 # 20000 200000 bmem
-TRAIN = True # True False
-PRETRAIN = True # True False
+TRAIN = False # True False
+PRETRAIN = False # True False 加入预训练
 
-record_dir = './0325/result_record_pdqn_3r_6'
+record_dir = './0404/result_record_pdqn_3r_5tl_tlr_noctrl4_test'
 
 # 1. 整理每个epo的数据，获得df_all_epo
 cols = ['epo', 'train_step', 'position_y', 'target_lane', 'lane', 'r_avg', 'r_sum', 'dis_to_target_lane']
@@ -83,7 +83,7 @@ start_train = 0 # 开始训练的位置
 if TRAIN:
     for i in df_all_epo['epo'].to_list(): # 不能用 for i in range(len(df_all_epo)):  有些epo被删去了，只能按照epo中的来
         if df_all_epo.iloc[i]['train_step'] >= memory_size: # train_step统计的是，所有的和
-            start_train = i
+            start_train = df_all_epo.iloc[i]['epo']
             break
     
 # 绘图 统计r_avg per episode 和 average of 100 episodes\' r_avg
@@ -159,6 +159,11 @@ csv_cnt = len([n for n in os.listdir(record_dir)]) # 统计文件夹下的文件
 for i in tqdm(range(csv_cnt-5)): # 减去两个模型保存文件的数量
     if os.path.getsize(record_dir) > 0:
         one_file = pd.read_csv(f"{record_dir}/df_record_epo_{i}.csv")
+        one_file = one_file.drop(index = one_file[(one_file['r']==-1)].index.tolist()) # 去掉撞墙时r为-1的记录，否则某些time step重复记录了两次
+        # one_file = one_file.drop(index = one_file[(one_file['r']==inf_car )].index.tolist()) # 去掉最后一条为-3的 -100
+        # 惩罚都为 -10 
+        one_file = one_file.drop(index = one_file[(one_file['r']==-10 )].index.tolist()) 
+        one_file = one_file.drop(index = one_file[(one_file['r']==-100 )].index.tolist()) 
         
         # 1.如果epo中有2条以上记录
         if len(one_file) >= 2:
@@ -226,11 +231,11 @@ df_all_epo.to_csv(f"{record_dir}/all_final_record.csv", index = False)
 # print('min_r_safe', min_r_safe)
 #        
 
-
-losses = pd.read_csv(f"{record_dir}/losses.csv")
-losses_cut = losses.iloc[20000:]
-# plt.plot(losses_cut['0']) # 折线图
-plt.scatter(losses_cut.index, losses_cut['0'],s=1, alpha=0.05) # 散点图 s点大小 alpha 透明度 
+if TRAIN:
+    losses = pd.read_csv(f"{record_dir}/losses.csv")
+    losses_cut = losses.iloc[20000:]
+    # plt.plot(losses_cut['0']) # 折线图
+    plt.scatter(losses_cut.index, losses_cut['0'],s=1, alpha=0.05) # 散点图 s点大小 alpha 透明度 
 
 # 统计模型指标
 print('r_avg', df_all_epo[-1000:]['r_avg'].mean())
