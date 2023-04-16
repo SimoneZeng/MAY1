@@ -18,10 +18,10 @@ import os
 from tqdm import tqdm
 
 memory_size = 20000 # 20000 200000 bmem
-TRAIN = False # True False
+TRAIN = True # True False
 PRETRAIN = False # True False 加入预训练
 
-record_dir = './0404/result_record_pdqn_3r_5tl_tlr_noctrl4_test'
+record_dir = './0413/result_record_pdqn_3r_5tl_tlr_noctrl_lstm_fnr'
 
 # 1. 整理每个epo的数据，获得df_all_epo
 cols = ['epo', 'train_step', 'position_y', 'target_lane', 'lane', 'r_avg', 'r_sum', 'dis_to_target_lane']
@@ -30,6 +30,17 @@ inf_car = -10 # -10 -100
 
 fail_cnt = 0 # one_file中没有结果
 csv_cnt = len([n for n in os.listdir(record_dir)]) # 统计文件夹下的文件个数
+
+# # 找撞车原因 全都是10m处撞的
+# df_another_co = pd.DataFrame(columns = ['epo', 'other_record'])
+
+# for i in tqdm(range(csv_cnt-5)):
+#     if os.path.getsize(f"{record_dir}/df_record_epo_{i}.csv") > 0:
+#         one_file = pd.read_csv(f"{record_dir}/df_record_epo_{i}.csv")
+#         last_line = one_file.iloc[-1,:]
+#         other_record = last_line['other_record']
+#         if 'another_co_id' in other_record:
+#             df_another_co = df_another_co.append({'epo':i, 'other_record': other_record}, ignore_index=True)
 
 for i in tqdm(range(csv_cnt-5)):
     if os.path.getsize(f"{record_dir}/df_record_epo_{i}.csv") > 0:
@@ -62,10 +73,7 @@ for i in tqdm(range(csv_cnt-5)):
 
 del i, last_line
 
-# df_all_epo.to_csv("{record_dir}/all_final_record.csv", index = False)
-
 # 绘图
-# df_all_epo = pd.read_csv("{record_dir}/all_final_record.csv")
 df_all_epo = df_all_epo.drop(index = df_all_epo[(df_all_epo['position_y']==0)].index.tolist()) # 去掉没有行驶到1100m的
 
 
@@ -111,40 +119,6 @@ plt.tick_params(labelsize=14) # 坐标轴字体
 plt.show()
 
 del r_avg, y_avg # 删掉一些没用的变量，方便查看其他有用的变量 
-
-
-
-# ===================================其他统计========================================！！！
-# df_drop_ramdom_search 不包含start_train之前的随机探索epo；
-#df_drop_ramdom_search = df_all_epo[(df_all_epo['epo'] >= start_train)] # 这里不能直接根据start_train 切片，因为有些 epo 没有
-#
-## 1. 车辆行驶距离和start_index的关系
-#st_in = df_drop_ramdom_search[['epo', 'position_y', 'r_avg', 'r_sum']]
-#st_in['start_index'] = st_in['epo'].apply(lambda x: int(x) % 100)
-#epo_analysis = pd.DataFrame([i for i in range(100)]) # 关于epo的统计特征
-## 求每一类start_index的position_y平均值，默认生成结果的列明为mean
-#epo_analysis['start_index_y'] = st_in.groupby(['start_index'])['position_y'].agg(['mean'])
-## 求每一类start_index的 r_avg_y 平均值
-#epo_analysis['r_avg_y'] = st_in.groupby(['start_index'])['r_avg'].agg(['mean'])
-#
-## 画图 start_index_y
-#plt.figure(figsize=(12,6), dpi=100)
-#plt.xlabel("start_index", fontsize=14) # x y轴含义
-#plt.ylabel("position_y", fontsize=14)
-#plt.tick_params(labelsize=14) # 坐标轴字体
-#plt.plot(epo_analysis.index, epo_analysis['start_index_y'], linewidth=2, label = 'start_index_y')
-##plt.savefig('./1012/start_index_y-result_record_sp8_ttc_co100.jpg')
-#plt.show()
-#
-## 画图 r_avg_y
-#plt.figure(figsize=(12,6), dpi=100)
-#plt.xlabel("start_index", fontsize=14) # x y轴含义
-#plt.ylabel("r_avg", fontsize=14)
-#plt.tick_params(labelsize=14) # 坐标轴字体
-#plt.plot(epo_analysis.index, epo_analysis['r_avg_y'], linewidth=2, label = 'c')
-##plt.savefig('./1012/r_avg_y-result_record_sp8_ttc_co100.jpg')
-#plt.show()
-
 
 
 '''
