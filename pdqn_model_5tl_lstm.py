@@ -123,7 +123,7 @@ class QActor(nn.Module):
     def forward(self, state, tl_code, action_parameters):
         x = torch.reshape(state, (-1, 21))  # 7*3变为1*21 torch.Size([1, 21])
         x = x.float() 
-        tl_code = torch.reshape(tl_code, (-1, 5)) # 5 维变为 1*5
+        tl_code = torch.reshape(tl_code, (-1, 7)) # 5 维变为 1*5
         x = torch.cat((x, tl_code, action_parameters), dim=1)
         q = self.feature_layer(x)
         
@@ -158,7 +158,7 @@ class ParamActor(nn.Module):
     def forward(self, state, tl_code):
         x = torch.reshape(state, (-1, 21))
         x = x.float() # 否则报错expected scalar type Float but found Double
-        tl_code = torch.reshape(tl_code, (-1, 5)) # 5 维变为 1*5
+        tl_code = torch.reshape(tl_code, (-1, 7)) # 5 维变为 1*5
         x = torch.cat((x, tl_code), dim=1)
         action = self.feature_layer(x)
         action = torch.tanh(action) # n * 3维的action
@@ -200,7 +200,7 @@ class QActor_init(nn.Module):
     def forward(self, state, tl_code, action_parameters):
         x = torch.reshape(state, (-1, 21))  # 7*3变为1*21 torch.Size([1, 21])
         x = x.float() 
-        tl_code = torch.reshape(tl_code, (-1, 5)) # 5 维变为 1*5
+        tl_code = torch.reshape(tl_code, (-1, 7)) # 5 维变为 1*5
         x = torch.cat((x, tl_code, action_parameters), dim=1)
         q = self.feature_layer(x)
         
@@ -242,7 +242,7 @@ class ParamActor_init(nn.Module):
     def forward(self, state, tl_code):
         x = torch.reshape(state, (-1, 21))
         x = x.float() # 否则报错expected scalar type Float but found Double
-        tl_code = torch.reshape(tl_code, (-1, 5)) # 5 维变为 1*5
+        tl_code = torch.reshape(tl_code, (-1, 7)) # 5 维变为 1*5
         x = torch.cat((x, tl_code), dim=1)
         
         y, state = self.lstm_layer(x) # type(state)  <class 'tuple'> len  2 type(y)  <class 'torch.Tensor'>
@@ -260,7 +260,7 @@ class PDQNAgent(nn.Module):
             self, 
             state_dim = 3*7, 
             action_dim: int =1, 
-            tl_dim: int = 5,
+            tl_dim: int = 7,
             memory_size: int = 20000,
             batch_size: int = 128, # former 32
             epsilon_initial=1.0,

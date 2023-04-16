@@ -58,7 +58,7 @@
     </edge>
 
     <junction id="C0" type="dead_end" x="0.00" y="0.00" incLanes="" intLanes="" shape="0.00,0.00 0.00,-9.60"/>
-    <junction id="C1" type="priority" x="3100.00" y="0.00" incLanes="E0_0 E0_1 E0_2" intLanes=":C1_0_0 :C1_0_1 :C1_0_2" shape="3100.00,0.00 3100.00,-9.60 3100.00,0.00">
+    <junction id="C1" type="priority" x="3100.00" y="0.00" incLanes="E0_0 E0_1 E0_2" intLanes=":C1_0_0 :C1_0_1 :C1_0_2" shape="3100.00,0.00 3100.00,-9.60">
         <request index="0" response="000" foes="000" cont="0"/>
         <request index="1" response="000" foes="000" cont="0"/>
         <request index="2" response="000" foes="000" cont="0"/>
