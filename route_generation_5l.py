@@ -23,11 +23,11 @@ v3_cnt = 0
 v4_cnt = 0
 
 
-with open("sumo/one_way_py2.rou.xml", "w") as routes:
+with open("sumo/one_way_5L.rou.xml", "w") as routes:
     # 配置所有的车辆属性和所有的路线.
     print("""<routes>
     <vType id="CarA" length="5" maxSpeed="25" carFollowModel="Krauss" width='1.6' tau="1" minGap="0" accel="3"  decel="3" />
-    <route id="r1" edges="E0 E1" />""", file=routes)
+    <route id="r1" edges="EA EB" />""", file=routes)
     
     for i in range(timestep):
         ts_cnt = ts_cnt + 1

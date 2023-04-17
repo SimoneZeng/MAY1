@@ -57,7 +57,7 @@ from sumolib import checkBinary
 
 # os.environ['CUDA_VISIBLE_DEVICES']='0, 1'  # 显卡使用
 TRAIN = True # False True
-gui = False # False True # 是否打开gui
+gui = True # False True # 是否打开gui
 if gui == 1:
     sumoBinary = checkBinary('sumo-gui')
 else:
@@ -68,8 +68,9 @@ map_ve = {} # 记录车辆信息
 auto_vehicle_a = 0
 step = 0 # 统计总的训练次数
 # 存储奖励值的数组，分epo存的
-cols = ['epo', 'train_step', 'position_y', 'target_lane', 'lane', 'speed', 
-         'lc_int', 'fact_acc', 'acc', 'change_lane', 'r','r_safe', 'r_eff','r_com', 'r_tl', 'other_record', 'done', 's', 's_']
+cols = ['epo', 'train_step', 'position_y', 'target_direc', 'lane', 'speed', 
+         'lc_int', 'fact_acc', 'acc', 'change_lane', 'r','r_safe', 'r_eff',
+         'r_com', 'r_tl', 'other_record', 'done', 's', 's_']
 df_record = pd.DataFrame(columns = cols)
 action_change_dict = {0: 'left', 1: 'keep', 2:'right'}
 
@@ -139,7 +140,8 @@ def get_all(control_vehicle, select_dis):
     # 排序操作是为了找到那个方向离自动驾驶车最近的那辆车，（每个方向只选了最近的那辆）
     up = sorted(up, key=lambda x: x[0])
     # 如果该方向有车 则将最近的车的信息加到ID_list里面里面。
-    # 如果该方向没车，对于自己车道上的则用远的mask车辆代替，如果是旁边车道的得判断到底有没有旁边车道，有的话也是用远的mask来代替，否则用纵向距离为0的车辆代替，表示这个方向没车道，不能去
+    # 如果该方向没车，对于自己车道上的则用远的mask车辆代替，如果是旁边车道的得判断到底有没有旁边车道，
+    # 有的话也是用远的mask来代替，否则用纵向距离为0的车辆代替，表示这个方向没车道，不能去
     # up[0][-1]指车辆ID, map_ve[up[0][-1]]是要收集的车辆信息
     if len(up) >= 1:
         Id_list.append(map_ve[up[0][-1]])
@@ -165,7 +167,7 @@ def get_all(control_vehicle, select_dis):
         Id_list.append(map_ve[upleft[0][-1]])
         Id_dict['upleft'] = upleft[0][-1]
     else:
-        if '2' in ego_lane:
+        if '4' in ego_lane:
             Id_list.append([0, 3.2, 0])
             Id_dict['upleft'] = ''
         else:
@@ -197,7 +199,7 @@ def get_all(control_vehicle, select_dis):
         Id_list.append(map_ve[downleft[-1][-1]])
         Id_dict['downleft'] = downleft[-1][-1]
     else:
-        if '2' in ego_lane:
+        if '4' in ego_lane:
             Id_list.append([0, 3.2, 0])
             Id_dict['downleft'] = ''
         else:
@@ -206,11 +208,18 @@ def get_all(control_vehicle, select_dis):
 
     # # 得到自动驾驶车自己所在的车道
     if '0' in ego_lane:
-        ego_l=-1
+        ego_l=-1.0
     elif '1' in ego_lane:
+        ego_l=-0.5
+    elif '2' in ego_lane:
         ego_l=0
-    else:
+    elif '3' in ego_lane:
+        ego_l=0.5
+    elif '4' in ego_lane:
         ego_l=1
+    else:
+        ego_l=5
+        print("CODE LOGIC ERROR!")
     # global auto_vehicle_a
     # if np.abs(traci.vehicle.getAcceleration(control_vehicle)) < 0.0001:
     #     cal_a = auto_vehicle_a
@@ -323,13 +332,15 @@ def train(agent, control_vehicle, episode, target_lane):
     collision=0
     loss_actor = 0
     Q_loss = 0
-    if 'E0_0' == pre_ego_info_dict["LaneID"] and change_lane=='right':
+    if 'EA_0' == pre_ego_info_dict["LaneID"] and change_lane=='right':
         collision=1
         done = 1
         train_step = agent._step
         print('---- train_step ----', train_step)
-        print(f"before store \n \t obs {all_vehicle} \n \t act {action_lc_int} \n \t act_param {all_action_parameters} \n \t" 
-              f"rew {inf} \n \t next_obs {np.zeros((7,3))} \n \t done {done}" )
+        print(f"before store---obs:{all_vehicle} \n"
+            f"act:{action_lc_int} act_param:{all_action_parameters} \n" 
+            f"rew:{inf}\n"
+            f"next_obs:{np.zeros((7,3))} \ndone:{done}" )
         agent.store_transition(all_vehicle, tl_code, action_lc_int, all_action_parameters, inf, np.zeros((7,3)), tl_code, done)
         df_record = df_record.append(pd.DataFrame([[episode, train_step, pre_ego_info_dict['position'][0], 
                                                     target_lane, pre_ego_info_dict['LaneID'], 
@@ -338,13 +349,15 @@ def train(agent, control_vehicle, episode, target_lane):
         print("====================右右右右车道撞墙墙墙墙===================")
         return collision, loss_actor, Q_loss
 
-    if 'E0_2' == pre_ego_info_dict["LaneID"] and change_lane=='left':
+    if 'EA_4' == pre_ego_info_dict["LaneID"] and change_lane=='left':
         collision=1
         done = 1
         train_step = agent._step
         print('---- train_step ----', train_step)
-        print(f"before store \n \t obs {all_vehicle} \n \t act {action_lc_int} \n \t act_param {all_action_parameters} \n \t" 
-              f"rew {inf} \n \t next_obs {np.zeros((7,3))} \n \t done {done}" )
+        print(f"before store---obs:{all_vehicle} \n"
+            f"act:{action_lc_int} act_param:{all_action_parameters} \n" 
+            f"rew:{inf}\n"
+            f"next_obs:{np.zeros((7,3))} \ndone:{done}" )
         agent.store_transition(all_vehicle, tl_code, action_lc_int, all_action_parameters, inf, np.zeros((7,3)), tl_code, done)
         df_record = df_record.append(pd.DataFrame([[episode, train_step, pre_ego_info_dict['position'][0], 
                                                     target_lane, pre_ego_info_dict['LaneID'], 
@@ -355,15 +368,24 @@ def train(agent, control_vehicle, episode, target_lane):
     
     # 3. 变道处理
     if change_lane=='left':
-        if '1' in pre_ego_info_dict["LaneID"]:
-            traci.vehicle.moveTo(control_vehicle, 'E0_2', traci.vehicle.getLanePosition(control_vehicle))
-        elif '0' in pre_ego_info_dict["LaneID"]:
-            traci.vehicle.moveTo(control_vehicle, 'E0_1', traci.vehicle.getLanePosition(control_vehicle))
+        if '0' in pre_ego_info_dict["LaneID"]:
+            traci.vehicle.moveTo(control_vehicle, 'EA_1', traci.vehicle.getLanePosition(control_vehicle))
+        elif '1' in pre_ego_info_dict["LaneID"]:
+            traci.vehicle.moveTo(control_vehicle, 'EA_2', traci.vehicle.getLanePosition(control_vehicle))
+        elif '2' in pre_ego_info_dict["LaneID"]:
+            traci.vehicle.moveTo(control_vehicle, 'EA_3', traci.vehicle.getLanePosition(control_vehicle))
+        elif '3' in pre_ego_info_dict["LaneID"]:
+            traci.vehicle.moveTo(control_vehicle, 'EA_4', traci.vehicle.getLanePosition(control_vehicle))
+        
     elif change_lane=='right':
         if '1' in pre_ego_info_dict["LaneID"]:
-            traci.vehicle.moveTo(control_vehicle, 'E0_0', traci.vehicle.getLanePosition(control_vehicle))
+            traci.vehicle.moveTo(control_vehicle, 'EA_0', traci.vehicle.getLanePosition(control_vehicle))
         elif '2' in pre_ego_info_dict["LaneID"]:
-            traci.vehicle.moveTo(control_vehicle, 'E0_1', traci.vehicle.getLanePosition(control_vehicle))
+            traci.vehicle.moveTo(control_vehicle, 'EA_1', traci.vehicle.getLanePosition(control_vehicle))
+        elif '3' in pre_ego_info_dict["LaneID"]:
+            traci.vehicle.moveTo(control_vehicle, 'EA_2', traci.vehicle.getLanePosition(control_vehicle))
+        elif '4' in pre_ego_info_dict["LaneID"]:
+            traci.vehicle.moveTo(control_vehicle, 'EA_3', traci.vehicle.getLanePosition(control_vehicle))    
     
     # ================================执行 ==================================
     traci.simulationStep()
@@ -407,9 +429,21 @@ def train(agent, control_vehicle, episode, target_lane):
         
     auto_vehicle_a = cur_ego_info_dict['acc']
     r_comfort = ((np.abs(pre_ego_info_dict['acc']-cur_ego_info_dict['acc'])/0.1) ** 2) / 3600 
+
     r_tl = 0
     if cur_ego_info_dict['LaneID'] != '':
-        r_tl = -(0.0005 * (pre_ego_info_dict['position'][0] - 1100) ) * abs(int(cur_ego_info_dict['LaneID'][-1]) - target_lane) *1/2
+        if target_lane == 0:
+            r_tl = -(0.0005 * (pre_ego_info_dict['position'][0] - 1100) ) * abs(int(cur_ego_info_dict['LaneID'][-1]) - 0) *1/4
+        elif target_lane == 1:
+            if int(cur_ego_info_dict['LaneID'][-1]) == 4 or int(cur_ego_info_dict['LaneID'][-1]) == 0:
+                r_tl = -(0.0005 * (pre_ego_info_dict['position'][0] - 1100) )
+            else:
+                r_tl = 0
+        else:
+            if int(cur_ego_info_dict['LaneID'][-1]) == 4 or int(cur_ego_info_dict['LaneID'][-1]) == 3:
+                r_tl = 0
+            else:
+                r_tl = -(0.0005 * (pre_ego_info_dict['position'][0] - 1100) ) * abs(int(cur_ego_info_dict['LaneID'][-1]) - 3) *1/3
     
     # r_side = [] # 记录与前后车的距离
     r_side.append("new_v_dict")
@@ -473,8 +507,10 @@ def train(agent, control_vehicle, episode, target_lane):
         done = 1
         train_step = agent._step
         print('---- train_step ----', train_step)
-        print(f"before store \n \t obs {all_vehicle} \n \t act {action_lc_int} \n \t act_param {all_action_parameters} \n \t" 
-              f"rew {cur_reward} \n \t next_obs {new_all_vehicle} \n \t done {done}" )
+        print(f"before store---obs:{all_vehicle} \n"
+            f"act:{action_lc_int} act_param:{all_action_parameters} \n" 
+            f"rew:{cur_reward} safe:{r_safe} efficiency:{r_efficiency} comfort:{r_comfort} target_lane:{r_tl}\n"
+            f"next_obs:{new_all_vehicle} \ndone:{done}" )
         agent.store_transition(all_vehicle, tl_code, action_lc_int, all_action_parameters, inf_car, new_all_vehicle, tl_code, done)
         df_record = df_record.append(pd.DataFrame([[episode, train_step, cur_ego_info_dict['position'][0], 
                                             target_lane, cur_ego_info_dict['LaneID'], 
@@ -485,8 +521,10 @@ def train(agent, control_vehicle, episode, target_lane):
     
     train_step = agent._step
     print('---- train_step ----', train_step)
-    print(f"before store obs {all_vehicle} \n act {action_lc_int} \n act_param {all_action_parameters} \n" 
-          f"rew {cur_reward} \n next_obs {new_all_vehicle} \n done {done}" )
+    print(f"before store---obs:{all_vehicle} \n"
+        f"act:{action_lc_int} act_param:{all_action_parameters} \n" 
+        f"rew:{cur_reward} safe:{r_safe} efficiency:{r_efficiency} comfort:{r_comfort} target_lane:{r_tl}\n"
+        f"next_obs:{new_all_vehicle} \ndone:{done}" )
     agent.store_transition(all_vehicle, tl_code, action_lc_int, all_action_parameters, cur_reward, new_all_vehicle, tl_code, done)
     df_record = df_record.append(pd.DataFrame([[episode, train_step, cur_ego_info_dict['position'][0], 
                                                 target_lane, cur_ego_info_dict['LaneID'], 
@@ -494,7 +532,7 @@ def train(agent, control_vehicle, episode, target_lane):
                                                 cur_reward, r_safe, r_efficiency, r_comfort, r_tl, r_side, done, 
                                                 all_vehicle, new_all_vehicle]], columns = cols))
     
-    if TRAIN and (agent._step > agent.memory_size):
+    if TRAIN and (agent._step > agent.batch_size):
     # if TRAIN and (agent._step > agent.batch_size):
         loss_actor, Q_loss = agent.learn()
         print('!!!!!!! actor的loss ', loss_actor, 'q的loss ', Q_loss)
@@ -514,7 +552,7 @@ def main_train():
         )
     losses_actor = [] # 不需要看第一个memory 即前20000步
     
-    os.mkdir("result_record_pdqn_3r_5tl_tlr_noctrl_lstm_test")
+    os.mkdir("result_record_pdqn_3r_5tl_tlr_noctrl_linear_5l")
     if not TRAIN:
         if gui:
             agent.load_state_dict(torch.load('./0324/result_record_pdqn_3r_5_check/net_params.pth', map_location=torch.device('cpu')))
@@ -528,7 +566,7 @@ def main_train():
         ego_index_str = '1_'+str(ego_index) # ego的id为'1_$index$', 如index为20,id='1_20'
         control_vehicle = '' # ego车辆的id
         ego_show = False # ego车辆是否出现过
-        target_lane = random.randint(0, 2) # ego的变道目标车道，从0 1 2中取
+        target_lane = random.randint(0, 2) # ego的变道方向，从0 1 2中取
         global auto_vehicle_a
         auto_vehicle_a = 0
         global df_record
@@ -536,7 +574,7 @@ def main_train():
         
         print("++++++++++++++++++++++++++++++++++++++++++++++++")
         print(f"++++++++++++++++++++{epo}+++++++++++++++++++++++++")
-        print("++++++++++++++++++ result_record_pdqn_3r_5tl_tlr_noctrl_lstm_test +++++++++++++++++++++++")
+        print("++++++++++++++++++ result_record_pdqn_3r_5tl_tlr_noctrl_linear_5l +++++++++++++++++++++++")
         
         
         while traci.simulation.getMinExpectedNumber() > 0:
@@ -595,9 +633,9 @@ def main_train():
         traci.close(wait=True)
         
         # 保存
-        df_record.to_csv(f"result_record_pdqn_3r_5tl_tlr_noctrl_lstm_test/df_record_epo_{epo}.csv", index = False)
-        torch.save(agent.state_dict(), './result_record_pdqn_3r_5tl_tlr_noctrl_lstm_test/net_params.pth') 
-        pd.DataFrame(data=losses_actor).to_csv('./result_record_pdqn_3r_5tl_tlr_noctrl_lstm_test/losses.csv')
+        df_record.to_csv(f"result_record_pdqn_3r_5tl_tlr_noctrl_linear_5l/df_record_epo_{epo}.csv", index = False)
+        torch.save(agent.state_dict(), './result_record_pdqn_3r_5tl_tlr_noctrl_linear_5l/net_params.pth') 
+        pd.DataFrame(data=losses_actor).to_csv('./result_record_pdqn_3r_5tl_tlr_noctrl_linear_5l/losses.csv')
 
 
 if __name__ == '__main__':
