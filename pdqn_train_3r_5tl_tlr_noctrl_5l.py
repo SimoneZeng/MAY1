@@ -70,11 +70,12 @@ step = 0 # 统计总的训练次数
 # 存储奖励值的数组，分epo存的
 cols = ['epo', 'train_step', 'position_y', 'target_direc', 'lane', 'speed', 
          'lc_int', 'fact_acc', 'acc', 'change_lane', 'r','r_safe', 'r_eff',
-         'r_com', 'r_tl', 'other_record', 'done', 's', 's_']
+         'r_com', 'r_tl', 'r_fluc','other_record', 'done', 's', 's_']
 df_record = pd.DataFrame(columns = cols)
 action_change_dict = {0: 'left', 1: 'keep', 2:'right'}
 
 tl_list = [[0,1,0,0,0,0,1], [1,1,0,1,1,1,0], [1,0,1,1,0,0,0]] # 0 是右车道
+PRE_LANE = None
 
 def get_all(control_vehicle, select_dis):
     """
@@ -284,7 +285,8 @@ def train(agent, control_vehicle, episode, target_lane):
     global auto_vehicle_a
     pre_ego_info_dict = {"speed": traci.vehicle.getSpeed(control_vehicle), 
                          "acc":traci.vehicle.getAcceleration(control_vehicle), 
-                         "LaneID": traci.vehicle.getLaneID(control_vehicle), 
+                         "LaneID": traci.vehicle.getLaneID(control_vehicle),
+                         "LaneIndex": traci.vehicle.getLaneIndex(control_vehicle), 
                          "position": traci.vehicle.getPosition(control_vehicle)}
     print("pre_ego_info_dict", pre_ego_info_dict)
 
@@ -345,7 +347,7 @@ def train(agent, control_vehicle, episode, target_lane):
         df_record = df_record.append(pd.DataFrame([[episode, train_step, pre_ego_info_dict['position'][0], 
                                                     target_lane, pre_ego_info_dict['LaneID'], 
                                                     pre_ego_info_dict['speed'], action_lc_int, pre_ego_info_dict['acc'], action_acc, change_lane, 
-                                                    inf, 0, 0, 0, 0, 0, done, all_vehicle, np.zeros((7,3))]], columns = cols))
+                                                    inf, 0, 0, 0, 0, 0, 0, done, all_vehicle, np.zeros((7,3))]], columns = cols))
         print("====================右右右右车道撞墙墙墙墙===================")
         return collision, loss_actor, Q_loss
 
@@ -362,7 +364,7 @@ def train(agent, control_vehicle, episode, target_lane):
         df_record = df_record.append(pd.DataFrame([[episode, train_step, pre_ego_info_dict['position'][0], 
                                                     target_lane, pre_ego_info_dict['LaneID'], 
                                                     pre_ego_info_dict['speed'], action_lc_int, pre_ego_info_dict['acc'], action_acc, change_lane, 
-                                                    inf, 0, 0, 0, 0, 0, done, all_vehicle, np.zeros((7,3))]], columns = cols))
+                                                    inf, 0, 0, 0, 0, 0, 0, done, all_vehicle, np.zeros((7,3))]], columns = cols))
         print("====================左左左左车道撞墙墙墙墙===================")
         return collision, loss_actor, Q_loss
     
@@ -398,6 +400,7 @@ def train(agent, control_vehicle, episode, target_lane):
     cur_ego_info_dict = {"speed": traci.vehicle.getSpeed(control_vehicle), 
                      "acc":traci.vehicle.getAcceleration(control_vehicle), 
                      "LaneID": traci.vehicle.getLaneID(control_vehicle), 
+                     "LaneIndex": traci.vehicle.getLaneIndex(control_vehicle), 
                      "position": traci.vehicle.getPosition(control_vehicle)}
     
     print("cur_ego_info_dict", cur_ego_info_dict)
@@ -444,6 +447,13 @@ def train(agent, control_vehicle, episode, target_lane):
                 r_tl = 0
             else:
                 r_tl = -(0.0005 * (pre_ego_info_dict['position'][0] - 1100) ) * abs(int(cur_ego_info_dict['LaneID'][-1]) - 3) *1/3
+
+    # add penalty to discourage lane_change behavior fluctuation
+    if PRE_LANE == None:
+        r_fluc = 0
+    else:
+        r_fluc = -abs(cur_ego_info_dict['LaneIndex'] - PRE_LANE) * (1-abs(r_tl)) * 0.1
+    globals()['PRE_LANE'] = cur_ego_info_dict['LaneIndex']
     
     # r_side = [] # 记录与前后车的距离
     r_side.append("new_v_dict")
@@ -476,7 +486,7 @@ def train(agent, control_vehicle, episode, target_lane):
     
     
     # cur_reward = r_safe + r_efficiency - r_comfort
-    cur_reward = r_safe + 0.4 * r_efficiency - r_comfort + r_tl
+    cur_reward = r_safe + 0.4 * r_efficiency - r_comfort + r_tl + r_fluc
     
     # 5. 查询自动驾驶车是否发生碰撞
     collision=0
@@ -509,13 +519,13 @@ def train(agent, control_vehicle, episode, target_lane):
         print('---- train_step ----', train_step)
         print(f"before store---obs:{all_vehicle} \n"
             f"act:{action_lc_int} act_param:{all_action_parameters} \n" 
-            f"rew:{cur_reward} safe:{r_safe} efficiency:{r_efficiency} comfort:{r_comfort} target_lane:{r_tl}\n"
+            f"rew:{cur_reward} safe:{r_safe} efficiency:{r_efficiency} comfort:{r_comfort} target_lane:{r_tl} fluctuation:{r_fluc}\n"
             f"next_obs:{new_all_vehicle} \ndone:{done}" )
         agent.store_transition(all_vehicle, tl_code, action_lc_int, all_action_parameters, inf_car, new_all_vehicle, tl_code, done)
         df_record = df_record.append(pd.DataFrame([[episode, train_step, cur_ego_info_dict['position'][0], 
                                             target_lane, cur_ego_info_dict['LaneID'], 
                                             cur_ego_info_dict['speed'], action_lc_int, cur_ego_info_dict['acc'], action_acc, change_lane, 
-                                            inf_car, r_safe, r_efficiency, r_comfort, r_tl, r_side, done, 
+                                            inf_car, r_safe, r_efficiency, r_comfort, r_tl, r_fluc, r_side, done, 
                                             all_vehicle, new_all_vehicle]], columns = cols))
         return collision, loss_actor, Q_loss
     
@@ -523,16 +533,16 @@ def train(agent, control_vehicle, episode, target_lane):
     print('---- train_step ----', train_step)
     print(f"before store---obs:{all_vehicle} \n"
         f"act:{action_lc_int} act_param:{all_action_parameters} \n" 
-        f"rew:{cur_reward} safe:{r_safe} efficiency:{r_efficiency} comfort:{r_comfort} target_lane:{r_tl}\n"
+        f"rew:{cur_reward} safe:{r_safe} efficiency:{r_efficiency} comfort:{r_comfort} target_lane:{r_tl} fluctuation:{r_fluc}\n"
         f"next_obs:{new_all_vehicle} \ndone:{done}" )
     agent.store_transition(all_vehicle, tl_code, action_lc_int, all_action_parameters, cur_reward, new_all_vehicle, tl_code, done)
     df_record = df_record.append(pd.DataFrame([[episode, train_step, cur_ego_info_dict['position'][0], 
                                                 target_lane, cur_ego_info_dict['LaneID'], 
                                                 cur_ego_info_dict['speed'], action_lc_int, cur_ego_info_dict['acc'], action_acc, change_lane,
-                                                cur_reward, r_safe, r_efficiency, r_comfort, r_tl, r_side, done, 
+                                                cur_reward, r_safe, r_efficiency, r_comfort, r_tl, r_fluc, r_side, done, 
                                                 all_vehicle, new_all_vehicle]], columns = cols))
     
-    if TRAIN and (agent._step > agent.memory_size):
+    if TRAIN and (agent._step > agent.batch_size):
     # if TRAIN and (agent._step > agent.batch_size):
         loss_actor, Q_loss = agent.learn()
         print('!!!!!!! actor的loss ', loss_actor, 'q的loss ', Q_loss)
@@ -629,7 +639,8 @@ def main_train():
             global step
             step = step + 1
             losses_actor.append(loss_actor)
-
+            
+        globals()['PRE_LANE']=None
         traci.close(wait=True)
         
         # 保存
