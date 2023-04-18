@@ -48,7 +48,7 @@ import math
 # 引入地址 
 sumo_path = os.environ['SUMO_HOME'] # "D:\\sumo\\sumo1.13.0"
 cfg_path = "D:\Git\MAY1\sumo\one_way_5l.sumocfg" # 1.在本地用这个cfg_path
-#cfg_path = "/home/zengximu/sumo_inter/sumo_test01/sumo/one_way2.sumocfg" # 2. 在服务器上用这个cfg_path
+# cfg_path = "/data1/zengximu/sumo_test01/sumo/one_way_5l.sumocfg" # 2. 在服务器上用这个cfg_path
 sys.path.append(sumo_path)
 sys.path.append(sumo_path + "/tools")
 sys.path.append(sumo_path + "/tools/xml")
@@ -57,7 +57,7 @@ from sumolib import checkBinary
 
 # os.environ['CUDA_VISIBLE_DEVICES']='0, 1'  # 显卡使用
 TRAIN = True # False True
-gui = True # False True # 是否打开gui
+gui = False # False True # 是否打开gui
 if gui == 1:
     sumoBinary = checkBinary('sumo-gui')
 else:
@@ -573,7 +573,7 @@ def main_train():
         traci.start(sumoCmd)
         # ego_index = 20 + epo % 100   # 选取中间车道第index辆出发的车为我们的自动驾驶车
         ego_index = 5 + epo % 20   # 选取中间车道第index辆出发的车为我们的自动驾驶车
-        ego_index_str = '1_'+str(ego_index) # ego的id为'1_$index$', 如index为20,id='1_20'
+        ego_index_str = str(np.random.randint(0,5))+'_'+str(ego_index) # ego的id为'1_$index$', 如index为20,id='1_20'
         control_vehicle = '' # ego车辆的id
         ego_show = False # ego车辆是否出现过
         target_lane = random.randint(0, 2) # ego的变道方向，从0 1 2中取

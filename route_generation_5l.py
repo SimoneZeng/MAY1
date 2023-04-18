@@ -30,17 +30,16 @@ with open("sumo/one_way_5L.rou.xml", "w") as routes:
     <route id="r1" edges="EA EB" />""", file=routes)
     
     for i in range(timestep):
+        # 测试车所在车道从5条车道中随机选取
         ts_cnt = ts_cnt + 1
         #if i % p0 == 0:
         if np.random.randint(0, p0) == 0:
             v0_cnt = v0_cnt + 1
             print('    <vehicle id="0_%i" type="CarA" route="r1" depart="%f" departLane="0" departSpeed="20" color="247,247,247"/>' 
                   % (v0_cnt, i), file=routes)
-        # 测试车所在车道
         #if i % p1 == 1:
         if np.random.randint(0, p1) == 0:
             v1_cnt = v1_cnt + 1
-            # mark autonomous vehicle controlled by our model.
             print('    <vehicle id="1_%i" type="CarA" route="r1" depart="%f" departLane="1" departSpeed="20" color="247,247,247" />' 
                   % (v1_cnt, i), file=routes)
         #if i % p2 == 2:
