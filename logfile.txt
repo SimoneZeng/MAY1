@@ -1,17 +1,75 @@
-***Starting server on port 6413 ***
-Loading net-file from 'D:\Git\MAY1\sumo\one_way_5l.net.xml' ... done (1ms).
+***Starting server on port 12311 ***
+Loading net-file from 'D:\Git\MAY1\sumo\one_way_2l.net.xml' ... done (1ms).
 Loading done.
-Simulation version 1.14.1 started with time: 0.00
+Warning: Value of tau=0.00 in vehicle type 'CarA' lower than simulation step size may cause collisions.
+Simulation started with time: 0.00
 Warning: Vehicle '0_0' will not be able to arrive at the given position!
-Simulation ended at time: 65.50
+Warning: Choosing new speed factor 1.23 for vehicle '2_291' to match departure speed 25.00 (max 24.25).
+Warning: Choosing new speed factor 1.24 for vehicle '2_479' to match departure speed 25.00 (max 22.02).
+Warning: Choosing new speed factor 1.30 for vehicle '2_554' to match departure speed 25.00 (max 21.04).
+Warning: Choosing new speed factor 1.26 for vehicle '2_570' to match departure speed 25.00 (max 21.62).
+Warning: Choosing new speed factor 1.21 for vehicle '2_582' to match departure speed 25.00 (max 24.41).
+Warning: Choosing new speed factor 1.21 for vehicle '2_661' to match departure speed 25.00 (max 24.63).
+Warning: Choosing new speed factor 1.20 for vehicle '2_771' to match departure speed 25.00 (max 23.52).
+Warning: Choosing new speed factor 1.26 for vehicle '2_845' to match departure speed 25.00 (max 24.27).
+Warning: Choosing new speed factor 1.23 for vehicle '2_902' to match departure speed 25.00 (max 24.38).
+Warning: Choosing new speed factor 1.32 for vehicle '2_905' to match departure speed 25.00 (max 19.60).
+Warning: Choosing new speed factor 1.24 for vehicle '2_925' to match departure speed 25.00 (max 24.28).
+Warning: Choosing new speed factor 1.21 for vehicle '2_973' to match departure speed 25.00 (max 24.45).
+Warning: Choosing new speed factor 1.24 for vehicle '2_1021' to match departure speed 25.00 (max 23.53).
+Warning: Choosing new speed factor 1.24 for vehicle '2_1042' to match departure speed 25.00 (max 23.97).
+Warning: Choosing new speed factor 1.21 for vehicle '2_1101' to match departure speed 25.00 (max 24.61).
+Warning: Choosing new speed factor 1.24 for vehicle '2_1178' to match departure speed 25.00 (max 22.77).
+Warning: Choosing new speed factor 1.25 for vehicle '2_1215' to match departure speed 25.00 (max 21.95).
+Warning: Choosing new speed factor 1.22 for vehicle '2_1281' to match departure speed 25.00 (max 23.00).
+Warning: Choosing new speed factor 1.22 for vehicle '2_1416' to match departure speed 25.00 (max 17.84).
+Warning: Choosing new speed factor 1.31 for vehicle '2_1524' to match departure speed 25.00 (max 22.06).
+Warning: Choosing new speed factor 1.27 for vehicle '2_1837' to match departure speed 25.00 (max 23.48).
+Warning: Choosing new speed factor 1.21 for vehicle '2_1882' to match departure speed 25.00 (max 23.58).
+Warning: Choosing new speed factor 1.23 for vehicle '2_1978' to match departure speed 25.00 (max 23.36).
+Warning: Choosing new speed factor 1.20 for vehicle '2_2014' to match departure speed 25.00 (max 23.19).
+Warning: Choosing new speed factor 1.26 for vehicle '2_2025' to match departure speed 25.00 (max 21.62).
+Warning: Choosing new speed factor 1.23 for vehicle '2_2074' to match departure speed 25.00 (max 22.81).
+Warning: Choosing new speed factor 1.22 for vehicle '2_2135' to match departure speed 25.00 (max 24.66).
+Warning: Choosing new speed factor 1.22 for vehicle '2_2140' to match departure speed 25.00 (max 19.74).
+Warning: Choosing new speed factor 1.21 for vehicle '2_2175' to match departure speed 25.00 (max 24.69).
+Warning: Choosing new speed factor 1.24 for vehicle '2_2310' to match departure speed 25.00 (max 22.06).
+Warning: Choosing new speed factor 1.22 for vehicle '2_2359' to match departure speed 25.00 (max 22.46).
+Warning: Choosing new speed factor 1.27 for vehicle '2_2403' to match departure speed 25.00 (max 22.57).
+Warning: Choosing new speed factor 1.21 for vehicle '2_2466' to match departure speed 25.00 (max 21.08).
+Warning: Choosing new speed factor 1.30 for vehicle '2_2616' to match departure speed 25.00 (max 20.43).
+Warning: Choosing new speed factor 1.24 for vehicle '2_2703' to match departure speed 25.00 (max 21.34).
+Warning: Choosing new speed factor 1.24 for vehicle '2_2917' to match departure speed 25.00 (max 23.67).
+Warning: Choosing new speed factor 1.21 for vehicle '2_3092' to match departure speed 25.00 (max 23.07).
+Warning: Choosing new speed factor 1.23 for vehicle '2_3182' to match departure speed 25.00 (max 21.99).
+Warning: Choosing new speed factor 1.20 for vehicle '2_3192' to match departure speed 25.00 (max 24.63).
+Warning: Choosing new speed factor 1.23 for vehicle '2_3269' to match departure speed 25.00 (max 21.71).
+Warning: Choosing new speed factor 1.21 for vehicle '2_3445' to match departure speed 25.00 (max 22.08).
+Warning: Choosing new speed factor 1.24 for vehicle '2_3768' to match departure speed 25.00 (max 24.72).
+Warning: Choosing new speed factor 1.28 for vehicle '2_3837' to match departure speed 25.00 (max 23.68).
+Warning: Choosing new speed factor 1.25 for vehicle '2_3874' to match departure speed 25.00 (max 22.24).
+Warning: Choosing new speed factor 1.35 for vehicle '2_4143' to match departure speed 25.00 (max 21.17).
+Warning: Choosing new speed factor 1.22 for vehicle '2_4271' to match departure speed 25.00 (max 23.56).
+Warning: Choosing new speed factor 1.27 for vehicle '2_4342' to match departure speed 25.00 (max 23.93).
+Warning: Choosing new speed factor 1.22 for vehicle '2_4375' to match departure speed 25.00 (max 21.27).
+Warning: Choosing new speed factor 1.25 for vehicle '2_4404' to match departure speed 25.00 (max 21.53).
+Warning: Choosing new speed factor 1.20 for vehicle '2_4495' to match departure speed 25.00 (max 24.20).
+Warning: Choosing new speed factor 1.30 for vehicle '2_4629' to match departure speed 25.00 (max 24.56).
+Warning: Choosing new speed factor 1.20 for vehicle '2_4788' to match departure speed 25.00 (max 23.39).
+Warning: Choosing new speed factor 1.21 for vehicle '2_4837' to match departure speed 25.00 (max 23.66).
+Warning: Choosing new speed factor 1.26 for vehicle '2_4874' to match departure speed 25.00 (max 22.16).
+Warning: Teleporting vehicle '0_0'; collision with vehicle '2_12', lane='EA_2', gap=-2.43, time=17.50 stage=events.
+Warning: Vehicle '0_0' ends teleporting on edge 'EB', time=17.50.
+Simulation ended at time: 18.00
 Reason: TraCI requested termination.
 Performance: 
- Duration: 1.38s
- TraCI-Duration: 1.34s
- Real time factor: 47.4294
- UPS: 94.858798
+ Duration: 0.74s
+ TraCI-Duration: 0.33s
+ Real time factor: 24.2261
+ UPS: 899.057873
 Vehicles: 
- Inserted: 1
- Running: 1
- Waiting: 0
+ Inserted: 36 (Loaded: 5001)
+ Running: 36
+ Waiting: 4965
+Teleports: 1 (Collisions: 1)
 

@@ -193,9 +193,9 @@ class QActor_init(nn.Module):
             nn.Linear(256, self.action_size),
         )
         
-        for layer in self.feature_layer:
-            if isinstance(layer, nn.Linear):
-                nn.init.kaiming_normal_(layer.weight)
+        # for layer in self.feature_layer:
+        #     if isinstance(layer, nn.Linear):
+        #         nn.init.kaiming_normal_(layer.weight)
                 
     def forward(self, state, tl_code, action_parameters):
         x = torch.reshape(state, (-1, 21))  # 7*3变为1*21 torch.Size([1, 21])
@@ -232,9 +232,9 @@ class ParamActor_init(nn.Module):
             nn.Linear(256, self.action_param_size)
         )
 
-        for layer in self.feature_layer:
-            if isinstance(layer, nn.Linear):
-                nn.init.kaiming_normal_(layer.weight)
+        # for layer in self.feature_layer:
+        #     if isinstance(layer, nn.Linear):
+        #         nn.init.kaiming_normal_(layer.weight)
         
     def forward(self, state, tl_code):
         x = torch.reshape(state, (-1, 21))
