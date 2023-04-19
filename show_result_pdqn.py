@@ -56,7 +56,17 @@ for i in tqdm(range(csv_cnt-5)):
         if len(one_file) >= 2:
             last_line = one_file.iloc[-1,:]
             last_line['r_sum'] = one_file['r'].sum() # float
-            last_line['dis_to_target_lane'] = abs(int(last_line['lane'][-1]) - last_line['target_lane']) # int
+            # last_line['dis_to_target_lane'] = abs(int(last_line['lane'][-1]) - last_line['target_lane']) # int
+            # 车道分布从左到右是4 3 2 1 0
+            if last_line['target_direc'] == 0: # 0 是右转
+                last_line['dis_to_target_lane'] = abs(int(last_line['lane'][-1]) - 0) # int
+            elif last_line['target_direc'] == 1:# 1 是直行
+                last_line['dis_to_target_lane'] = min(abs(int(last_line['lane'][-1]) - 1),
+                                                      abs(int(last_line['lane'][-1]) - 2),
+                                                      abs(int(last_line['lane'][-1]) - 3))
+            elif last_line['target_direc'] == 2:# 1 是左转
+                last_line['dis_to_target_lane'] = min(abs(int(last_line['lane'][-1]) - 3),
+                                                      abs(int(last_line['lane'][-1]) - 4))
             last_line['r_avg'] = last_line['r_sum'] / (- one_file.iloc[0,:]['train_step'] + last_line['train_step'] + 1) # 每个回合的平均reward
             last_line = last_line[cols] # 选取需要的数据
             

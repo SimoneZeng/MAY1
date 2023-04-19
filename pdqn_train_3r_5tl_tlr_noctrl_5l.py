@@ -47,7 +47,8 @@ import math
 
 # 引入地址 
 sumo_path = os.environ['SUMO_HOME'] # "D:\\sumo\\sumo1.13.0"
-cfg_path = "D:\Git\MAY1\sumo\one_way_5l.sumocfg" # 1.在本地用这个cfg_path
+cfg_path = "D:\Git\MAY1\sumo\one_way_5l_nv.sumocfg" # 1.在本地用这个cfg_path
+#cfg_path = "D:\Git\MAY1\sumo\one_way_5l.sumocfg" # 1.在本地用这个cfg_path
 # cfg_path = "/data1/zengximu/sumo_test01/sumo/one_way_5l.sumocfg" # 2. 在服务器上用这个cfg_path
 sys.path.append(sumo_path)
 sys.path.append(sumo_path + "/tools")
@@ -231,7 +232,7 @@ def get_all(control_vehicle, select_dis):
 
     # 归一化，需要，要不然容易边界值
     for i in range(6):
-        Id_list[i][0] = Id_list[i][0]/50
+        Id_list[i][0] = Id_list[i][0]/select_dis
         Id_list[i][1] = Id_list[i][1]/3.2
         Id_list[i][2] = Id_list[i][2]/25
 
@@ -573,7 +574,10 @@ def main_train():
         traci.start(sumoCmd)
         # ego_index = 20 + epo % 100   # 选取中间车道第index辆出发的车为我们的自动驾驶车
         ego_index = 5 + epo % 20   # 选取中间车道第index辆出发的车为我们的自动驾驶车
-        ego_index_str = str(np.random.randint(0,5))+'_'+str(ego_index) # ego的id为'1_$index$', 如index为20,id='1_20'
+        ego_index_str = "0_0"
+        #ego_index_str = str(np.random.randint(0,5))+'_'+str(ego_index) # ego的id为'1_$index$', 如index为20,id='1_20'
+        traci.vehicle.add(vehID="0_0",routeID="r1",typeID="CarA", depart="0.000000", departLane=str(np.random.randint(0,5)), departPos="0", 
+                          departSpeed="5", arrivalLane="0", arrivalPos="3100", arrivalSpeed="25")
         control_vehicle = '' # ego车辆的id
         ego_show = False # ego车辆是否出现过
         target_lane = random.randint(0, 2) # ego的变道方向，从0 1 2中取

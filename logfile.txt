@@ -1,0 +1,17 @@
+***Starting server on port 6413 ***
+Loading net-file from 'D:\Git\MAY1\sumo\one_way_5l.net.xml' ... done (1ms).
+Loading done.
+Simulation version 1.14.1 started with time: 0.00
+Warning: Vehicle '0_0' will not be able to arrive at the given position!
+Simulation ended at time: 65.50
+Reason: TraCI requested termination.
+Performance: 
+ Duration: 1.38s
+ TraCI-Duration: 1.34s
+ Real time factor: 47.4294
+ UPS: 94.858798
+Vehicles: 
+ Inserted: 1
+ Running: 1
+ Waiting: 0
+
