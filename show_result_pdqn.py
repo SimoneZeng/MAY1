@@ -21,10 +21,11 @@ memory_size = 20000 # 20000 200000 bmem
 TRAIN = True # True False
 PRETRAIN = False # True False 加入预训练
 
-record_dir = './0413/result_record_pdqn_3r_5tl_tlr_noctrl_lstm_fnr'
+record_dir = './0417/result_record_pdqn_3r_5tl_tlr_noctrl_linear_5l'
+# record_dir = './result_record_pdqn_3r_5tl_tlr_noctrl_linear_5l'
 
 # 1. 整理每个epo的数据，获得df_all_epo
-cols = ['epo', 'train_step', 'position_y', 'target_lane', 'lane', 'r_avg', 'r_sum', 'dis_to_target_lane']
+cols = ['epo', 'train_step', 'position_y', 'target_direc', 'lane', 'r_avg', 'r_sum', 'dis_to_target_lane']
 df_all_epo = pd.DataFrame(columns = cols)
 inf_car = -10 # -10 -100
 
