@@ -1,8 +1,8 @@
-***Starting server on port 12311 ***
+***Starting server on port 14237 ***
 Loading net-file from 'D:\Git\MAY1\sumo\one_way_2l.net.xml' ... done (1ms).
 Loading done.
 Warning: Value of tau=0.00 in vehicle type 'CarA' lower than simulation step size may cause collisions.
-Simulation started with time: 0.00
+Simulation version 1.14.1 started with time: 0.00
 Warning: Vehicle '0_0' will not be able to arrive at the given position!
 Warning: Choosing new speed factor 1.23 for vehicle '2_291' to match departure speed 25.00 (max 24.25).
 Warning: Choosing new speed factor 1.24 for vehicle '2_479' to match departure speed 25.00 (max 22.02).
@@ -58,18 +58,15 @@ Warning: Choosing new speed factor 1.30 for vehicle '2_4629' to match departure 
 Warning: Choosing new speed factor 1.20 for vehicle '2_4788' to match departure speed 25.00 (max 23.39).
 Warning: Choosing new speed factor 1.21 for vehicle '2_4837' to match departure speed 25.00 (max 23.66).
 Warning: Choosing new speed factor 1.26 for vehicle '2_4874' to match departure speed 25.00 (max 22.16).
-Warning: Teleporting vehicle '0_0'; collision with vehicle '2_12', lane='EA_2', gap=-2.43, time=17.50 stage=events.
-Warning: Vehicle '0_0' ends teleporting on edge 'EB', time=17.50.
-Simulation ended at time: 18.00
+Simulation ended at time: 135.50
 Reason: TraCI requested termination.
 Performance: 
- Duration: 0.74s
- TraCI-Duration: 0.33s
- Real time factor: 24.2261
- UPS: 899.057873
+ Duration: 60.68s
+ TraCI-Duration: 59.81s
+ Real time factor: 2.23317
+ UPS: 611.724570
 Vehicles: 
- Inserted: 36 (Loaded: 5001)
- Running: 36
- Waiting: 4965
-Teleports: 1 (Collisions: 1)
+ Inserted: 272 (Loaded: 5001)
+ Running: 272
+ Waiting: 4729
 

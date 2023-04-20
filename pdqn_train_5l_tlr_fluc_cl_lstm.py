@@ -38,8 +38,8 @@ import matplotlib.pyplot as plt
 import torch
 import random
 
-#from pdqn_model_5tl_lstm import PDQNAgent
-from pdqn_model_5tl_linear import PDQNAgent
+from pdqn_model_5tl_lstm import PDQNAgent
+#from pdqn_model_5tl_linear import PDQNAgent
 import os, sys
 import pandas as pd
 import math
@@ -47,9 +47,11 @@ import math
 
 # 引入地址 
 sumo_path = os.environ['SUMO_HOME'] # "D:\\sumo\\sumo1.13.0"
-cfg_path1 = "D:\Git\MAY1\sumo\one_way_2l.sumocfg" # 1.在本地用这个cfg_path
-cfg_path2 = "D:\Git\MAY1\sumo\one_way_5l.sumocfg" # 1.在本地用这个cfg_path
-# cfg_path = "/data1/zengximu/sumo_test01/sumo/one_way_5l.sumocfg" # 2. 在服务器上用这个cfg_path
+# cfg_path1 = "D:\Git\MAY1\sumo\one_way_2l.sumocfg" # 1.在本地用这个cfg_path
+# cfg_path2 = "D:\Git\MAY1\sumo\one_way_5l.sumocfg" # 1.在本地用这个cfg_path
+cfg_path1 = "/data1/zengximu/sumo_test01/sumo/one_way_2l.sumocfg" # 2. 在服务器上用这个cfg_path
+cfg_path2 = "/data1/zengximu/sumo_test01/sumo/one_way_5l.sumocfg" # 2. 在服务器上用这个cfg_path
+OUT_DIR="result_pdqn_5l_tlr_fluc_cl_lstm"
 sys.path.append(sumo_path)
 sys.path.append(sumo_path + "/tools")
 sys.path.append(sumo_path + "/tools/xml")
@@ -58,7 +60,7 @@ from sumolib import checkBinary
 
 # os.environ['CUDA_VISIBLE_DEVICES']='0, 1'  # 显卡使用
 TRAIN = True # False True
-gui = True # False True # 是否打开gui
+gui = False # False True # 是否打开gui
 if gui == 1:
     sumoBinary = checkBinary('sumo-gui')
 else:
@@ -76,6 +78,9 @@ cols = ['stage','epo', 'train_step', 'position_y', 'target_direc', 'lane', 'spee
 df_record = pd.DataFrame(columns = cols)
 action_change_dict = {0: 'left', 1: 'keep', 2:'right'}
 
+np.random.seed(0)
+random.seed(0)
+torch.manual_seed(5)
 tl_list = [[0,1,0,0,0,0,1], [1,1,0,1,1,1,0], [1,0,1,1,0,0,0]] # 0 是右车道
 # different curriculum stages
 # state 1: only ego vehicle, no surrounding vehicles
@@ -83,7 +88,7 @@ tl_list = [[0,1,0,0,0,0,1], [1,1,0,1,1,1,0], [1,0,1,1,0,0,0]] # 0 是右车道
 # state 3: ego + surrounding vehicles + target lane
 CURRICULUM_STAGE = 1
 PRE_LANE = None
-RL_CONTROL = 250 # Rl agent take control after 200 meters
+RL_CONTROL = 1100 # Rl agent take control after 200 meters
 
 def get_all(control_vehicle, select_dis):
     """
@@ -274,7 +279,7 @@ def train(agent, control_vehicle, episode, target_lane):
     global tl_list
     tl_code = tl_list[target_lane]
     
-    all_vehicle, rel_up, v_dict = get_all(control_vehicle, RL_CONTROL-50)
+    all_vehicle, rel_up, v_dict = get_all(control_vehicle, 200)
     print("v_dict", v_dict)
     if TRAIN:
         action_lc_int, action_acc, all_action_parameters = agent.choose_action(np.array(all_vehicle), tl_code) # 离散lane change ，连续acc，参数
@@ -501,7 +506,7 @@ def train(agent, control_vehicle, episode, target_lane):
         cur_reward = r_safe + 0.4 * r_efficiency - r_comfort + r_fluc
         r_tl = 0
     elif CURRICULUM_STAGE == 3:
-        cur_reward = r_safe + 0.4 * r_efficiency - r_comfort + r_fluc + r_tl
+        cur_reward = r_safe + 0.4 * r_efficiency - r_comfort + r_fluc + r_tl*2
     else:
         print("CODE LOGIC ERROR!")
     
@@ -559,7 +564,7 @@ def train(agent, control_vehicle, episode, target_lane):
                                                 cur_reward, r_safe, r_efficiency, r_comfort, r_tl, r_fluc, r_side, done, 
                                                 all_vehicle, new_all_vehicle]], columns = cols))
     
-    if TRAIN and (agent._step > agent.batch_size):
+    if TRAIN and (agent._step > agent.minimal_size):
     # if TRAIN and (agent._step > agent.batch_size):
         loss_actor, Q_loss = agent.learn()
         print('!!!!!!! actor的loss ', loss_actor, 'q的loss ', Q_loss)
@@ -577,12 +582,12 @@ def main_train():
         s_dim, 
         a_dim,
         acc3 = True,
-        Kaiming_normal = True,
+        Kaiming_normal = False,
         )
     losses_actor = [] # 不需要看第一个memory 即前20000步
     losses_episode = []
     
-    os.mkdir("result_record_pdqn_3r_5tl_tlr_noctrl_linear_5l")
+    os.mkdir(OUT_DIR)
     if not TRAIN:
         if gui:
             agent.load_state_dict(torch.load('./0324/result_record_pdqn_3r_5_check/net_params.pth', map_location=torch.device('cpu')))
@@ -617,7 +622,7 @@ def main_train():
         
         print("++++++++++++++++++++++++++++++++++++++++++++++++")
         print(f"++++++++++++++++++++{epo}+++++++++++++++++++++++++")
-        print("++++++++++++++++++ result_record_pdqn_3r_5tl_tlr_noctrl_linear_5l +++++++++++++++++++++++")
+        print(f"++++++++++++++++++ {OUT_DIR} +++++++++++++++++++++++")
         
         
         while traci.simulation.getMinExpectedNumber() > 0:
@@ -679,7 +684,7 @@ def main_train():
                 losses_actor.append(loss_actor)
                 losses_episode.append(loss_actor)
             
-        if len(losses_episode)>0 and np.average(losses_episode)<=0.01:
+        if len(losses_episode)>0 and np.average(losses_episode)<=0.1:
             if CURRICULUM_STAGE == 1:
                 globals()['CURRICULUM_STAGE'] = 2
             elif CURRICULUM_STAGE == 2:
@@ -691,9 +696,9 @@ def main_train():
         traci.close(wait=True)
         
         # 保存
-        df_record.to_csv(f"result_record_pdqn_3r_5tl_tlr_noctrl_linear_5l/df_record_epo_{epo}.csv", index = False)
-        torch.save(agent.state_dict(), './result_record_pdqn_3r_5tl_tlr_noctrl_linear_5l/net_params.pth') 
-        pd.DataFrame(data=losses_actor).to_csv('./result_record_pdqn_3r_5tl_tlr_noctrl_linear_5l/losses.csv')
+        df_record.to_csv(f"{OUT_DIR}/df_record_epo_{epo}.csv", index = False)
+        torch.save(agent.state_dict(), f"./{OUT_DIR}/net_params.pth") 
+        pd.DataFrame(data=losses_actor).to_csv(f"./{OUT_DIR}/losses.csv")
 
 
 if __name__ == '__main__':

@@ -26,7 +26,7 @@ v4_cnt = 0
 with open("sumo/one_way_2L.rou.xml", "w") as routes:
     # 配置所有的车辆属性和所有的路线.
     print("""<routes>
-    <vType id="CarA" length="5" maxSpeed="25" carFollowModel="Krauss" width='1.6' tau="0.0001" minGap="0" accel="0.5"  decel="0.4"/>
+    <vType id="CarA" length="5" maxSpeed="25" carFollowModel="Krauss" width='1.6' tau="0.0001" minGap="0" accel="0.0001"  decel="0.004"/>
     <vType id="CarB" length="5" maxSpeed="25" carFollowModel="Krauss" width='1.6' tau="1" minGap="0" accel="3"  decel="3"/>
     <route id="r1" edges="EA EB" />""", file=routes)
     

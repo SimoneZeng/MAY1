@@ -1,4 +1,5 @@
 import torch
 import numpy as np
 
-print(np.random.choice([0,1,3,4]))
+temp=[1,2,3]
+print(np.average(temp))

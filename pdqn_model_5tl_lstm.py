@@ -102,7 +102,7 @@ class QActor(nn.Module):
     return:
         all q values of discrete actions
     '''
-    def __init__(self, state_size: int, tl_size: int, action_size: int, action_param_size: int):
+    def __init__(self, state_size: int, tl_size: int, action_size: int, action_param_size: int, kaiming_normal: bool = False):
         super(QActor, self).__init__()
         self.state_size = state_size
         self.action_size = action_size
@@ -120,6 +120,11 @@ class QActor(nn.Module):
             nn.Linear(256, self.action_size),
         )
         
+        if kaiming_normal:
+            for layer in self.feature_layer:
+                if isinstance(layer, nn.Linear):
+                    nn.init.kaiming_normal_(layer.weight)
+                
     def forward(self, state, tl_code, action_parameters):
         x = torch.reshape(state, (-1, 21))  # 7*3变为1*21 torch.Size([1, 21])
         x = x.float() 
@@ -138,106 +143,15 @@ class ParamActor(nn.Module):
     return:
         all the optimal parameter of continuous action
     '''
-    def __init__(self, state_size: int, tl_size: int, action_param_size: int):
+    def __init__(self, state_size: int, tl_size: int, action_param_size: int, kaiming_normal: bool = False):
         super(ParamActor, self).__init__()
         self.state_size = state_size
         self.tl_size = tl_size
         self.action_param_size = action_param_size
-        
         inputSize = self.state_size + self.tl_size
         
-        # set common feature layer
-        self.feature_layer = nn.Sequential(
-            nn.Linear(inputSize, 128), 
-            nn.ReLU(),
-            nn.Linear(128, 256),
-            nn.ReLU(),
-            nn.Linear(256, self.action_param_size),
-        )
-        
-    def forward(self, state, tl_code):
-        x = torch.reshape(state, (-1, 21))
-        x = x.float() # 否则报错expected scalar type Float but found Double
-        tl_code = torch.reshape(tl_code, (-1, 7)) # 5 维变为 1*5
-        x = torch.cat((x, tl_code), dim=1)
-        action = self.feature_layer(x)
-        action = torch.tanh(action) # n * 3维的action
-        
-        return action
-
-class QActor_init(nn.Module):
-    '''
-    params:
-        state_size, state space
-        tl_size, dimension of targe lane code
-        action_size, discrete action space
-        action_param_size, the parameter of continuous action
-    return:
-        all q values of discrete actions
-    '''
-    def __init__(self, state_size: int, tl_size: int, action_size: int, action_param_size: int):
-        super(QActor_init, self).__init__()
-        self.state_size = state_size
-        self.action_size = action_size
-        self.action_param_size = action_param_size
-        self.tl_size = tl_size
-        
-        inputSize = self.state_size + self.action_param_size + self.tl_size
-        
-        # set common feature layer
-        self.feature_layer = nn.Sequential(
-            nn.Linear(inputSize, 128), 
-            nn.ReLU(),
-            nn.Linear(128, 256),
-            nn.ReLU(),
-            nn.Linear(256, self.action_size),
-        )
-        
-        for layer in self.feature_layer:
-            if isinstance(layer, nn.Linear):
-                nn.init.kaiming_normal_(layer.weight)
-                
-    def forward(self, state, tl_code, action_parameters):
-        x = torch.reshape(state, (-1, 21))  # 7*3变为1*21 torch.Size([1, 21])
-        x = x.float() 
-        tl_code = torch.reshape(tl_code, (-1, 7)) # 5 维变为 1*5
-        x = torch.cat((x, tl_code, action_parameters), dim=1)
-        q = self.feature_layer(x)
-        
-        return q
-       
-        
-class ParamActor_init(nn.Module):
-    '''
-    params:
-        state_size, state space
-        action_param_size, the parameter of continuous action
-    return:
-        all the optimal parameter of continuous action
-    '''
-    def __init__(self, state_size: int, tl_size: int, action_param_size: int):
-        super(ParamActor_init, self).__init__()
-        self.state_size = state_size
-        self.tl_size = tl_size
-        self.action_param_size = action_param_size
-        
-        inputSize = self.state_size + self.tl_size
-        
-        # set common feature layer
-        self.feature_layer = nn.Sequential(
-            nn.LSTM(inputSize, 128), 
-            # nn.ReLU(),
-            # nn.Linear(128, 256),
-            # nn.ReLU(),
-            # nn.Linear(256, self.action_param_size),
-            nn.Linear(128, self.action_param_size),
-        )
         self.lstm_layer = nn.LSTM(inputSize, 128)
         self.output = nn.Linear(128, self.action_param_size)
-
-        for layer in self.feature_layer:
-            if isinstance(layer, nn.Linear):
-                nn.init.kaiming_normal_(layer.weight)
         
     def forward(self, state, tl_code):
         x = torch.reshape(state, (-1, 21))
@@ -253,7 +167,7 @@ class ParamActor_init(nn.Module):
         
         action = torch.tanh(action) # n * 3维的action
         
-        return action        
+        return action    
 
 class PDQNAgent(nn.Module):
     def __init__(
@@ -283,6 +197,7 @@ class PDQNAgent(nn.Module):
         self.state_dim = state_dim
         self.tl_dim = tl_dim
         self.memory_size = memory_size
+        self.minimal_size = batch_size
         self.batch_size = batch_size
         self.lr_actor, self.lr_param = lr_actor, lr_param
         self.gamma = gamma
@@ -313,20 +228,12 @@ class PDQNAgent(nn.Module):
         self.action_param_offsets = np.insert(self.action_param_offsets, 0, 0)
         self.memory = ReplayBuffer(self.state_dim, self.action_param_size, self.tl_dim, self.memory_size, self.batch_size)
 
-        if self.Kaiming_normal:
-            self.actor = QActor_init(self.state_dim, self.tl_dim, self.num_action, self.action_param_size).to(self.device)
-            self.actor_target = QActor_init(self.state_dim, self.tl_dim, self.num_action, self.action_param_size).to(self.device)
-        else:
-            self.actor = QActor(self.state_dim, self.tl_dim, self.num_action, self.action_param_size).to(self.device)
-            self.actor_target = QActor(self.state_dim, self.tl_dim, self.num_action, self.action_param_size).to(self.device)
+        self.actor = QActor(self.state_dim, self.tl_dim, self.num_action, self.action_param_size, self.Kaiming_normal).to(self.device)
+        self.actor_target = QActor(self.state_dim, self.tl_dim, self.num_action, self.action_param_size, self.Kaiming_normal).to(self.device)
         self.actor_target.load_state_dict(self.actor.state_dict())
         self.actor_target.eval()  # 不启用 BatchNormalization 和 Dropout
-        if self.Kaiming_normal:
-            self.param = ParamActor_init(self.state_dim, self.tl_dim, self.action_param_size,).to(self.device)
-            self.param_target = ParamActor_init(self.state_dim, self.tl_dim, self.action_param_size,).to(self.device)
-        else:
-            self.param = ParamActor(self.state_dim, self.action_param_size,).to(self.device)
-            self.param_target = ParamActor(self.state_dim, self.action_param_size,).to(self.device)
+        self.param = ParamActor(self.state_dim, self.tl_dim, self.action_param_size, self.Kaiming_normal).to(self.device)
+        self.param_target = ParamActor(self.state_dim, self.tl_dim, self.action_param_size, self.Kaiming_normal).to(self.device)
         self.param_target.load_state_dict(self.param.state_dict())
         self.param_target.eval()
         
@@ -346,40 +253,34 @@ class PDQNAgent(nn.Module):
             with torch.no_grad(): # 不生成计算图，减少显存开销
                 state = torch.tensor(state, device=self.device)
                 tl_code = torch.tensor(tl_code, device=self.device)
-                all_action_parameters = self.param.forward(state, tl_code) # 1*3 维连续 param 
+                all_action_parameters = self.param.forward(state, tl_code) # 1*3 维连续 param
+                print("Network output -- all_action_param: ",all_action_parameters)
                 
                 if self._epsilon > np.random.random(): # 探索率随着迭代次数增加而减小
                     # if self._step < self.batch_size:    
-                    if self._step < self.memory_size: # 开始学习前，变道随机，acc随机
+                    if self._step < self.minimal_size: # 开始学习前，变道随机，acc随机
                         action = np.random.randint(0, self.num_action) # 离散 action 随机
-                        all_action_parameters = np.random.uniform(self.action_param_min_numpy, self.action_param_max_numpy)
+                        all_action_parameters = torch.from_numpy(np.random.uniform(
+                            self.action_param_min_numpy, self.action_param_max_numpy)).to(self.device)
+                        all_action_parameters = all_action_parameters.unsqueeze(0).to(torch.float32) # np是64的精度，转为32的精度
                     else: # 开始学习后，变道 不 随机
                         if self.NormalNoise: # acc加噪声
-                            Q_value = self.actor.forward(state, tl_code, all_action_parameters) 
-                            Q_value = Q_value.detach().cpu().numpy()
-                            action = np.argmax(Q_value)
-                            print("all_action_parameters before", all_action_parameters)
-                            all_action_parameters = all_action_parameters.squeeze() # 变为3维
-                            all_action_parameters = all_action_parameters.cpu().data.numpy()
-                            all_action_parameters = np.clip(np.random.normal(all_action_parameters,scale=0.02,size=3), -3, 3)
-                            print("all_action_parameters after", all_action_parameters)
-                        if not self.NormalNoise: # acc 随机
+                            all_action_parameters = torch.clamp(torch.normal(mean=all_action_parameters, std=0.1), min=-3, max=3)
+                        else: # acc 随机
                             all_action_parameters = torch.from_numpy(
                                     np.random.uniform(self.action_param_min_numpy, self.action_param_max_numpy)).to(self.device)
                             all_action_parameters = all_action_parameters.unsqueeze(0).to(torch.float32) # np是64的精度，转为32的精度
-                            Q_value = self.actor.forward(state, tl_code, all_action_parameters)
-                            Q_value = Q_value.detach().cpu().numpy()
-                            action = np.argmax(Q_value) # 得到随机 all_action_parameters 下的离散action
-                            all_action_parameters = all_action_parameters.squeeze() # 变为3维 连续 param
-                            all_action_parameters = all_action_parameters.cpu().data.numpy()
-                else: # select maximum action
-                    Q_value = self.actor.forward(state, tl_code, all_action_parameters) # 1*3 维 所有离散动作的Q_value
-                    Q_value = Q_value.detach().cpu().numpy() # tensor 转换为 numpy格式
-                    action = np.argmax(Q_value)
-                    all_action_parameters = all_action_parameters.squeeze() # 变为3维 连续 param
-                    all_action_parameters = all_action_parameters.cpu().data.numpy()
+
+                Q_value = self.actor.forward(state, tl_code, all_action_parameters) # 1*3 维 所有离散动作的Q_value
+                Q_value = Q_value.detach().cpu().numpy() # tensor 转换为 numpy格式
+                action = np.argmax(Q_value)
+                all_action_parameters = all_action_parameters.squeeze() # 变为3维 连续 param
+                all_action_parameters = all_action_parameters.cpu().data.numpy()
+                print("After Noise -- all_action_param:", all_action_parameters)
+                print("Q values: ", Q_value)
 
                 action_parameters = all_action_parameters[action] # all_action_parameters从1*3维，从第1维中选
+        
         if not train:
             with torch.no_grad(): 
                 state = torch.tensor(state, device=self.device)
