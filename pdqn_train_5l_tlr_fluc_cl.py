@@ -40,7 +40,7 @@ import random
 
 #from pdqn_model_5tl_lstm import PDQNAgent
 from pdqn_model_5tl_linear import PDQNAgent
-import os, sys
+import os, sys, shutil
 import pandas as pd
 import math
 
@@ -51,7 +51,7 @@ cfg_path1 = "D:\Git\MAY1\sumo\one_way_2l.sumocfg" # 1.在本地用这个cfg_path
 cfg_path2 = "D:\Git\MAY1\sumo\one_way_5l.sumocfg" # 1.在本地用这个cfg_path
 # cfg_path1 = "/data1/zengximu/sumo_test01/sumo/one_way_2l.sumocfg" # 2. 在服务器上用这个cfg_path
 # cfg_path2 = "/data1/zengximu/sumo_test01/sumo/one_way_5l.sumocfg" # 2. 在服务器上用这个cfg_path
-OUT_DIR="result_pdqn_5l_tlr_fluc_norule_cl_linear"
+OUT_DIR="result_pdqn_5l_tlr_fluc_cl_linear"
 sys.path.append(sumo_path)
 sys.path.append(sumo_path + "/tools")
 sys.path.append(sumo_path + "/tools/xml")
@@ -59,6 +59,7 @@ import traci # 在ubuntu中，traci和sumolib需要在tools地址引入之后imp
 from sumolib import checkBinary
 
 # os.environ['CUDA_VISIBLE_DEVICES']='0, 1'  # 显卡使用
+EPISODE_NUM=20000
 TRAIN = True # False True
 gui = False # False True # 是否打开gui
 if gui == 1:
@@ -587,14 +588,23 @@ def main_train():
     losses_actor = [] # 不需要看第一个memory 即前20000步
     losses_episode = []
     
-    os.mkdir(OUT_DIR)
     if not TRAIN:
+        globals()['EPISODE_NUM']=200
+        globals()['CURRICULUM_STAGE']=3
         if gui:
-            agent.load_state_dict(torch.load('./0324/result_record_pdqn_3r_5_check/net_params.pth', map_location=torch.device('cpu')))
+            agent.load_state_dict(torch.load(f"{OUT_DIR}/net_params.pth", map_location=torch.device('cuda')))
         else:
-            agent.load_state_dict(torch.load('./0408/result_record_pdqn_3r_5tl_tlr_noctrl_lstm/net_params.pth'))
+            agent.load_state_dict(torch.load(f"{OUT_DIR}/net_params.pth"))
+        globals()['OUT_DIR']=f"./{OUT_DIR}/test"
+
+    if not os.path.exists(OUT_DIR):
+        os.makedirs(OUT_DIR)
+    else:
+        shutil.rmtree(OUT_DIR, ignore_errors=True)
+        #os.removedirs(OUT_DIR)
+        os.makedirs(OUT_DIR)
     
-    for epo in range(20000): # 测试时可以调小epo回合次数 
+    for epo in range(EPISODE_NUM): # 测试时可以调小epo回合次数 
         target_lane = None
         if CURRICULUM_STAGE == 1:
             traci.start(sumoCmd0)
@@ -620,8 +630,7 @@ def main_train():
         global df_record
         df_record = pd.DataFrame(columns = cols)
         
-        print("++++++++++++++++++++++++++++++++++++++++++++++++")
-        print(f"++++++++++++++++++++{epo}+++++++++++++++++++++++++")
+        print(f"+++++++{epo}  STAGE:{CURRICULUM_STAGE} +++++++++++++")
         print(f"++++++++++++++++++ {OUT_DIR} +++++++++++++++++++++++")
         
         
@@ -684,7 +693,7 @@ def main_train():
                 losses_actor.append(loss_actor)
                 losses_episode.append(loss_actor)
             
-        if len(losses_episode)>0 and np.average(losses_episode)<=0.1:
+        if TRAIN and len(losses_episode)>0 and np.average(losses_episode)<=0.05:
             if CURRICULUM_STAGE == 1:
                 globals()['CURRICULUM_STAGE'] = 2
             elif CURRICULUM_STAGE == 2:
@@ -692,13 +701,14 @@ def main_train():
             else:
                 globals()['CURRICULUM_STAGE'] = 1
         globals()['PRE_LANE']=None
-        losses_actor.clear()
+        losses_episode.clear()
         traci.close(wait=True)
         
         # 保存
         df_record.to_csv(f"{OUT_DIR}/df_record_epo_{epo}.csv", index = False)
-        torch.save(agent.state_dict(), f"./{OUT_DIR}/net_params.pth") 
-        pd.DataFrame(data=losses_actor).to_csv(f"./{OUT_DIR}/losses.csv")
+        if TRAIN:
+            torch.save(agent.state_dict(), f"./{OUT_DIR}/net_params.pth") 
+            pd.DataFrame(data=losses_actor).to_csv(f"./{OUT_DIR}/losses.csv")
 
 
 if __name__ == '__main__':
