@@ -66,8 +66,8 @@ if gui == 1:
     sumoBinary = checkBinary('sumo-gui')
 else:
     sumoBinary = checkBinary('sumo')
-sumoCmd0 = [sumoBinary, "-c", cfg_path1, "--log", 'logfile.txt']
-sumoCmd1 = [sumoBinary, "-c", cfg_path2, "--log", 'logfile.txt']
+sumoCmd0 = [sumoBinary, "-c", cfg_path1, "--log", f"{OUT_DIR}/logfile.txt"]
+sumoCmd1 = [sumoBinary, "-c", cfg_path2, "--log", f"{OUT_DIR}/logfile.txt"]
 
 map_ve = {} # 记录车辆信息
 auto_vehicle_a = 0
@@ -89,7 +89,7 @@ tl_list = [[0,1,0,0,0,0,1], [1,1,0,1,1,1,0], [1,0,1,1,0,0,0]] # 0 是右车道
 # state 3: ego + surrounding vehicles + target lane
 CURRICULUM_STAGE = 1
 PRE_LANE = None
-RL_CONTROL = 1100 # Rl agent take control after 200 meters
+RL_CONTROL = 500 # Rl agent take control after 200 meters
 
 def get_all(control_vehicle, select_dis):
     """
@@ -453,14 +453,14 @@ def train(agent, control_vehicle, episode, target_lane):
             r_tl = -(0.0005 * (pre_ego_info_dict['position'][0] - RL_CONTROL) ) * abs(int(cur_ego_info_dict['LaneID'][-1]) - 0) *1/4
         elif target_lane == 1:
             if int(cur_ego_info_dict['LaneID'][-1]) == 4 or int(cur_ego_info_dict['LaneID'][-1]) == 0:
-                r_tl = -(0.0005 * (pre_ego_info_dict['position'][0] - RL_CONTROL) )
+                r_tl = -(0.0005 * (pre_ego_info_dict['position'][0] - RL_CONTROL) ) *1/4
             else:
                 r_tl = 0
         else:
             if int(cur_ego_info_dict['LaneID'][-1]) == 4 or int(cur_ego_info_dict['LaneID'][-1]) == 3:
                 r_tl = 0
             else:
-                r_tl = -(0.0005 * (pre_ego_info_dict['position'][0] - RL_CONTROL) ) * abs(int(cur_ego_info_dict['LaneID'][-1]) - 3) *1/3
+                r_tl = -(0.0005 * (pre_ego_info_dict['position'][0] - RL_CONTROL) ) * abs(int(cur_ego_info_dict['LaneID'][-1]) - 3) *1/4
 
     # add penalty to discourage lane_change behavior fluctuation
     if PRE_LANE == None:
@@ -589,7 +589,7 @@ def main_train():
     losses_episode = []
     
     if not TRAIN:
-        globals()['EPISODE_NUM']=200
+        globals()['EPISODE_NUM']=400
         globals()['CURRICULUM_STAGE']=3
         if gui:
             agent.load_state_dict(torch.load(f"{OUT_DIR}/net_params.pth", map_location=torch.device('cuda')))
