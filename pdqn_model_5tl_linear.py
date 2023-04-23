@@ -193,12 +193,12 @@ class PDQNAgent(nn.Module):
             acc3 = True, # action_acc = 3 * action_parameters
             NormalNoise = False, # 高斯噪声
             Kaiming_normal = False, # 网络参数初始化
+            device = torch.device(
+                "cuda" if torch.cuda.is_available() else "cpu")
     ):
         super(PDQNAgent, self).__init__()
         
-        self.device = torch.device(
-            "cuda" if torch.cuda.is_available() else "cpu"
-        )
+        self.device = device
         print('device ', self.device)
         self.action_dim = action_dim # 1 维，输出1个连续动作 acc
         self.state_dim = state_dim

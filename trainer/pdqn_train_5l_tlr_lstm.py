@@ -282,8 +282,18 @@ def train(agent, control_vehicle, episode, target_lane):
     global tl_list
     tl_code = tl_list[target_lane]
     
+    #get surrounding vehicles information
     all_vehicle, rel_up, v_dict = get_all(control_vehicle, 200)
+    #change ego vehicle information for curriculum stage 1 and stage 2
+    if CURRICULUM_STAGE != 3:
+        if target_lane == 0:
+            all_vehicle[6][1]=-1.0
+        elif target_lane ==1:
+            all_vehicle[6][1]=random.choice([-0.5, 0, 0.5])
+        else:
+            all_vehicle[6][1]=random.choice([0.5, 1])
     print("v_dict", v_dict)
+
     if TRAIN:
         action_lc_int, action_acc, all_action_parameters = agent.choose_action(np.array(all_vehicle), tl_code) # 离散lane change ，连续acc，参数
     else:
@@ -354,7 +364,7 @@ def train(agent, control_vehicle, episode, target_lane):
         collision=1
         done = 1
         train_step = agent._step
-        print('---- train_step ----', train_step)
+        print(f"---- train_step:{train_step}  target_lane:{target_lane} ----")
         print(f"before store---obs:{all_vehicle} \n"
             f"act:{action_lc_int} act_param:{all_action_parameters} \n" 
             f"rew:{inf}\n"
@@ -371,7 +381,7 @@ def train(agent, control_vehicle, episode, target_lane):
         collision=1
         done = 1
         train_step = agent._step
-        print('---- train_step ----', train_step)
+        print(f"---- train_step:{train_step}  target_lane:{target_lane} ----")
         print(f"before store---obs:{all_vehicle} \n"
             f"act:{action_lc_int} act_param:{all_action_parameters} \n" 
             f"rew:{inf}\n"
@@ -542,10 +552,10 @@ def train(agent, control_vehicle, episode, target_lane):
         collision=1
         done = 1
         train_step = agent._step
-        print('---- train_step ----', train_step)
+        print(f"---- train_step:{train_step}  target_lane:{target_lane} ----")
         print(f"before store---obs:{all_vehicle} \n"
             f"act:{action_lc_int} act_param:{all_action_parameters} \n" 
-            f"rew:{cur_reward} safe:{r_safe} efficiency:{r_efficiency} comfort:{r_comfort} target_lane:{r_tl} fluctuation:{r_fluc}\n"
+            f"rew:{cur_reward} safe:{r_safe} efficiency:{r_efficiency} comfort:{r_comfort} target_lane_reward:{r_tl} fluctuation:{r_fluc}\n"
             f"next_obs:{new_all_vehicle} \ndone:{done}" )
         agent.store_transition(all_vehicle, tl_code, action_lc_int, all_action_parameters, inf_car, new_all_vehicle, tl_code, done)
         df_record = df_record.append(pd.DataFrame([[CURRICULUM_STAGE,episode, train_step, cur_ego_info_dict['position'][0], 
@@ -556,10 +566,10 @@ def train(agent, control_vehicle, episode, target_lane):
         return collision, loss_actor, Q_loss
     
     train_step = agent._step
-    print('---- train_step ----', train_step)
+    print(f"---- train_step:{train_step}  target_lane:{target_lane} ----")
     print(f"before store---obs:{all_vehicle} \n"
         f"act:{action_lc_int} act_param:{all_action_parameters} \n" 
-        f"rew:{cur_reward} safe:{r_safe} efficiency:{r_efficiency} comfort:{r_comfort} target_lane:{r_tl} fluctuation:{r_fluc}\n"
+        f"rew:{cur_reward} safe:{r_safe} efficiency:{r_efficiency} comfort:{r_comfort} target_lane_reward:{r_tl} fluctuation:{r_fluc}\n"
         f"next_obs:{new_all_vehicle} \ndone:{done}" )
     agent.store_transition(all_vehicle, tl_code, action_lc_int, all_action_parameters, cur_reward, new_all_vehicle, tl_code, done)
     df_record = df_record.append(pd.DataFrame([[CURRICULUM_STAGE,episode, train_step, cur_ego_info_dict['position'][0], 
@@ -587,7 +597,7 @@ def main_train():
         a_dim,
         acc3 = True,
         Kaiming_normal = False,
-        )
+        device=torch.device('cuda:3'))
     losses_actor = [] # 不需要看第一个memory 即前20000步
     losses_episode = []
     
@@ -607,7 +617,8 @@ def main_train():
         #os.removedirs(OUT_DIR)
         os.makedirs(OUT_DIR)
     
-    for epo in range(EPISODE_NUM): # 测试时可以调小epo回合次数 
+    for epo in range(EPISODE_NUM): # 测试时可以调小epo回合次数
+        truncated = False 
         target_lane = None
         if CURRICULUM_STAGE == 1:
             traci.start(sumoCmd0)
@@ -685,9 +696,9 @@ def main_train():
             traci.vehicle.setLaneChangeMode(control_vehicle, 0b000000000000)
             
             # 5 模型训练
-            print(target_lane)
             collision, loss_actor, _ = train(agent, control_vehicle, epo,  target_lane) # 模拟一个时间步
             if collision:
+                truncated = True
                 break
 
             global step
@@ -696,13 +707,13 @@ def main_train():
                 losses_actor.append(loss_actor)
                 losses_episode.append(loss_actor)
             
-        # if TRAIN and len(losses_episode)>0 and np.average(losses_episode)<=0.05:
+        # if TRAIN and not truncated and len(losses_episode)>0 and np.average(losses_episode)<=0.05:
         #     if CURRICULUM_STAGE == 1:
         #         globals()['CURRICULUM_STAGE'] = 2
         #     elif CURRICULUM_STAGE == 2:
         #         globals()['CURRICULUM_STAGE'] = 3
-        #     else:
-        #         globals()['CURRICULUM_STAGE'] = 1
+            # else:
+            #     globals()['CURRICULUM_STAGE'] = 1
         globals()['PRE_LANE']=None
         losses_episode.clear()
         traci.close(wait=True)
