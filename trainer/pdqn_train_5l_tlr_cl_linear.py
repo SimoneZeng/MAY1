@@ -90,8 +90,9 @@ tl_list = [[0,1,0,0,0,0,1], [1,1,0,1,1,1,0], [1,0,1,1,0,0,0]] # 0 是右车道
 # state 2: ego + surrounding vehicles
 # state 3: ego + surrounding vehicles + target lane
 CURRICULUM_STAGE = 1
+SWITCH_COUNT = 100 # the minimal episode count
 PRE_LANE = None
-RL_CONTROL = 500 # Rl agent take control after 200 meters
+RL_CONTROL = 500 # Rl agent take control after 500 meters
 
 def get_all(control_vehicle, select_dis):
     """
@@ -604,6 +605,7 @@ def main_train():
     if not TRAIN:
         globals()['EPISODE_NUM']=400
         globals()['CURRICULUM_STAGE']=3
+        globals()['RL_CONTROL']=1100
         if gui:
             agent.load_state_dict(torch.load(f"{OUT_DIR}/net_params.pth", map_location=torch.device('cuda')))
         else:
@@ -617,6 +619,7 @@ def main_train():
         #os.removedirs(OUT_DIR)
         os.makedirs(OUT_DIR)
     
+    switch_count=1
     for epo in range(EPISODE_NUM): # 测试时可以调小epo回合次数
         truncated = False 
         target_lane = None
@@ -708,15 +711,18 @@ def main_train():
                 losses_episode.append(loss_actor)
             
         if TRAIN and not truncated and len(losses_episode)>0 and np.average(losses_episode)<=0.02:
-            if CURRICULUM_STAGE == 1:
+            if CURRICULUM_STAGE == 1 and switch_count >= SWITCH_COUNT:
+                switch_count = 1
                 globals()['CURRICULUM_STAGE'] = 2
-            elif CURRICULUM_STAGE == 2:
+            elif CURRICULUM_STAGE == 2 and switch_count >= SWITCH_COUNT:
+                switch_count = 1
                 globals()['CURRICULUM_STAGE'] = 3
             # else:
             #     globals()['CURRICULUM_STAGE'] = 1
         globals()['PRE_LANE']=None
         losses_episode.clear()
         traci.close(wait=True)
+        switch_count+=1
         
         # 保存
         df_record.to_csv(f"{OUT_DIR}/df_record_epo_{epo}.csv", index = False)
