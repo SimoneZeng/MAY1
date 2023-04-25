@@ -93,6 +93,7 @@ CURRICULUM_STAGE = 3
 SWITCH_COUNT = 100 # the minimal episode count
 PRE_LANE = None
 RL_CONTROL = 500 # Rl agent take control after 500 meters
+DEVICE = torch.device("cuda:3")
 
 def get_all(control_vehicle, select_dis):
     """
@@ -597,7 +598,7 @@ def main_train():
         a_dim,
         acc3 = True,
         Kaiming_normal = False,
-        device=torch.device('cuda:3'))
+        device=DEVICE)
     losses_actor = [] # 不需要看第一个memory 即前20000步
     losses_episode = []
     
@@ -605,11 +606,12 @@ def main_train():
         globals()['EPISODE_NUM']=400
         globals()['CURRICULUM_STAGE']=3
         globals()['RL_CONTROL']=1100
-        if gui:
-            agent.load_state_dict(torch.load(f"{OUT_DIR}/net_params.pth", map_location=torch.device('cuda')))
-        else:
-            agent.load_state_dict(torch.load(f"{OUT_DIR}/net_params.pth"))
+        agent.load_state_dict(torch.load(f"{OUT_DIR}/net_params.pth", map_location=DEVICE))
         globals()['OUT_DIR']=f"./{OUT_DIR}/test"
+    else:
+        #load pre-trained model params for further training
+        if os.path.exists(f"./model_params/{OUT_DIR}_net_params.pth"):
+            agent.load_state_dict(torch.load(f"./model_params/{OUT_DIR}_net_params.pth", map_location=DEVICE))
 
     if not os.path.exists(OUT_DIR):
         os.makedirs(OUT_DIR)
