@@ -18,10 +18,10 @@ import os
 from tqdm import tqdm
 
 memory_size = 20000 # 20000 200000 bmem
-TRAIN = True # True False
+TRAIN = False # True False
 PRETRAIN = False # True False 加入预训练
 
-record_dir = './0417/result_record_pdqn_3r_5tl_tlr_noctrl_linear_5l'
+record_dir = './0424/result_record_pdqn_3r_5tl_tlr_noctrl_linear_5l'
 # record_dir = './result_record_pdqn_3r_5tl_tlr_noctrl_linear_5l'
 
 # 1. 整理每个epo的数据，获得df_all_epo

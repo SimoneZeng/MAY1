@@ -1,3 +1,4 @@
 *__pycache__/
 *result_*/
 *.txt
+*model_params/
