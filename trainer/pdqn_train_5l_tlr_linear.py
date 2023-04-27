@@ -90,7 +90,7 @@ tl_list = [[0,1,0,0,0,0,1], [1,1,0,1,1,1,0], [1,0,1,1,0,0,0]] # 0 是右车道
 # state 2: ego + surrounding vehicles
 # state 3: ego + surrounding vehicles + target lane
 CURRICULUM_STAGE = 3
-SWITCH_COUNT = 100 # the minimal episode count
+SWITCH_COUNT = 50 # the minimal episode count
 PRE_LANE = None
 RL_CONTROL = 500 # Rl agent take control after 500 meters
 DEVICE = torch.device("cuda:3")
@@ -282,19 +282,21 @@ def train(agent, control_vehicle, episode, target_lane):
     print()
     global TRAIN
     global tl_list
-    tl_code = tl_list[target_lane]
     
     #get surrounding vehicles information
     all_vehicle, rel_up, v_dict = get_all(control_vehicle, 200)
     #change ego vehicle information for curriculum stage 1 and stage 2
     if CURRICULUM_STAGE != 3:
-        if target_lane == 0:
-            all_vehicle[6][1]=-1.0
-        elif target_lane ==1:
-            all_vehicle[6][1]=random.choice([-0.5, 0, 0.5])
+        if all_vehicle[6][1]==-1:
+            target_lane=0
+        elif all_vehicle[6][1]==-0.5 or all_vehicle[6][1]==0:
+            target_lane=1
+        elif all_vehicle[6][1]==0.5:
+            target_lane=random.choice([1, 2])
         else:
-            all_vehicle[6][1]=random.choice([0.5, 1])
+            target_lane=2
     print("v_dict", v_dict)
+    tl_code = tl_list[target_lane]
 
     if TRAIN:
         action_lc_int, action_acc, all_action_parameters = agent.choose_action(np.array(all_vehicle), tl_code) # 离散lane change ，连续acc，参数
@@ -516,13 +518,13 @@ def train(agent, control_vehicle, episode, target_lane):
     
     # cur_reward = r_safe + r_efficiency - r_comfort
     if CURRICULUM_STAGE == 1:
-        cur_reward = r_safe + 0.4 * r_efficiency - r_comfort + r_fluc
+        cur_reward = r_safe + r_efficiency - r_comfort + r_fluc
         r_tl = 0
     elif CURRICULUM_STAGE == 2:
-        cur_reward = r_safe + 0.4 * r_efficiency - r_comfort + r_fluc
+        cur_reward = r_safe + r_efficiency - r_comfort + r_fluc
         r_tl = 0
     elif CURRICULUM_STAGE == 3:
-        cur_reward = r_safe + 0.4 * r_efficiency - r_comfort + r_fluc + r_tl*2
+        cur_reward = r_safe + r_efficiency - r_comfort + r_fluc + r_tl*2
     else:
         print("CODE LOGIC ERROR!")
     

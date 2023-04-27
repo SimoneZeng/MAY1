@@ -44,8 +44,10 @@ curPath=os.path.abspath(os.path.dirname(__file__))
 rootPath=os.path.split(os.path.split(curPath)[0])[0]
 sys.path.append(rootPath+'/sumo_test01')
 
-from pdqn_model_5tl_lstm import PDQNAgent
-#from pdqn_model_5tl_linear import PDQNAgent
+#from pdqn_model_5tl_lstm import PDQNAgent
+from pdqn_model_5tl_linear import PDQNAgent
+
+
 
 # 引入地址 
 sumo_path = os.environ['SUMO_HOME'] # "D:\\sumo\\sumo1.13.0"
@@ -53,7 +55,7 @@ sumo_path = os.environ['SUMO_HOME'] # "D:\\sumo\\sumo1.13.0"
 # cfg_path2 = "D:\Git\MAY1\sumo\one_way_5l.sumocfg" # 1.在本地用这个cfg_path
 cfg_path1 = "/data1/zengximu/sumo_test01/sumo/one_way_2l.sumocfg" # 2. 在服务器上用这个cfg_path
 cfg_path2 = "/data1/zengximu/sumo_test01/sumo/one_way_5l.sumocfg" # 2. 在服务器上用这个cfg_path
-OUT_DIR="result_pdqn_5l_tlr_fluc_lstm"
+OUT_DIR="result_pdqn_5l_tlr_fluc_ccl_linear"
 sys.path.append(sumo_path)
 sys.path.append(sumo_path + "/tools")
 sys.path.append(sumo_path + "/tools/xml")
@@ -89,8 +91,8 @@ tl_list = [[0,1,0,0,0,0,1], [1,1,0,1,1,1,0], [1,0,1,1,0,0,0]] # 0 是右车道
 # state 1: only ego vehicle, no surrounding vehicles
 # state 2: ego + surrounding vehicles
 # state 3: ego + surrounding vehicles + target lane
-CURRICULUM_STAGE = 3
-SWITCH_COUNT = 100 # the minimal episode count
+CURRICULUM_STAGE = 1
+SWITCH_COUNT = 50 # the minimal episode count
 PRE_LANE = None
 RL_CONTROL = 500 # Rl agent take control after 500 meters
 DEVICE = torch.device("cuda:3")
@@ -282,19 +284,21 @@ def train(agent, control_vehicle, episode, target_lane):
     print()
     global TRAIN
     global tl_list
-    tl_code = tl_list[target_lane]
     
     #get surrounding vehicles information
     all_vehicle, rel_up, v_dict = get_all(control_vehicle, 200)
     #change ego vehicle information for curriculum stage 1 and stage 2
     if CURRICULUM_STAGE != 3:
-        if target_lane == 0:
-            all_vehicle[6][1]=-1.0
-        elif target_lane ==1:
-            all_vehicle[6][1]=random.choice([-0.5, 0, 0.5])
+        if all_vehicle[6][1]==-1:
+            target_lane=0
+        elif all_vehicle[6][1]==-0.5 or all_vehicle[6][1]==0:
+            target_lane=1
+        elif all_vehicle[6][1]==0.5:
+            target_lane=random.choice([1, 2])
         else:
-            all_vehicle[6][1]=random.choice([0.5, 1])
+            target_lane=2
     print("v_dict", v_dict)
+    tl_code = tl_list[target_lane]
 
     if TRAIN:
         action_lc_int, action_acc, all_action_parameters = agent.choose_action(np.array(all_vehicle), tl_code) # 离散lane change ，连续acc，参数
@@ -515,13 +519,13 @@ def train(agent, control_vehicle, episode, target_lane):
     
     # cur_reward = r_safe + r_efficiency - r_comfort
     if CURRICULUM_STAGE == 1:
-        cur_reward = r_safe + 0.4 * r_efficiency - r_comfort + r_fluc
+        cur_reward = r_safe + r_efficiency - r_comfort + r_fluc
         r_tl = 0
     elif CURRICULUM_STAGE == 2:
-        cur_reward = r_safe + 0.4 * r_efficiency - r_comfort + r_fluc
+        cur_reward = r_safe + r_efficiency - r_comfort + r_fluc
         r_tl = 0
     elif CURRICULUM_STAGE == 3:
-        cur_reward = r_safe + 0.4 * r_efficiency - r_comfort + r_fluc + r_tl*2
+        cur_reward = r_safe + r_efficiency - r_comfort + r_fluc + r_tl*2
     else:
         print("CODE LOGIC ERROR!")
     
@@ -711,15 +715,16 @@ def main_train():
                 losses_actor.append(loss_actor)
                 losses_episode.append(loss_actor)
             
-        # if TRAIN and not truncated and len(losses_episode)>0 and np.average(losses_episode)<=0.05:
-        #     if CURRICULUM_STAGE == 1 and switch_count >= SWITCH_COUNT:
-        #         switch_count = 1
-        #         globals()['CURRICULUM_STAGE'] = 2
-        #     elif CURRICULUM_STAGE == 2 and switch_count >= SWITCH_COUNT:
-        #         switch_count = 1
-        #         globals()['CURRICULUM_STAGE'] = 3
-            # else:
-            #     globals()['CURRICULUM_STAGE'] = 1
+        if TRAIN and not truncated and len(losses_episode)>0 and np.average(losses_episode)<=0.02:
+            if CURRICULUM_STAGE == 1 and switch_count >= SWITCH_COUNT:
+                switch_count = 1
+                globals()['CURRICULUM_STAGE'] = 2
+            elif CURRICULUM_STAGE == 2 and switch_count >= SWITCH_COUNT:
+                switch_count = 1
+                globals()['CURRICULUM_STAGE'] = 3
+            elif CURRICULUM_STAGE == 3 and switch_count >= SWITCH_COUNT:
+                switch_count = 1
+                globals()['CURRICULUM_STAGE'] = 1
         globals()['PRE_LANE']=None
         losses_episode.clear()
         traci.close(wait=True)

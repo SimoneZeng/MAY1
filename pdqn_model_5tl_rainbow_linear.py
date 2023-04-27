@@ -193,12 +193,16 @@ class QActor(nn.Module):
         # set common feature layer
         self.feature_layer = nn.Sequential(
             nn.Linear(inputSize, 128), 
-            nn.ReLU(),
-            nn.Linear(128, 256),
             nn.ReLU()
         )
 
-        self.noise_layer = NoisyLinear(256, self.action_size)
+        # est advantage layer
+        self.advantage_hidden_layer=NoisyLinear(128, 128)
+        self.advantage_layer=NoisyLinear(128, self.action_size)
+
+        # set value layer
+        self.value_hidden_layer=NoisyLinear(128,128)
+        self.value_layer=NoisyLinear(128, 1)
         
         if kaiming_normal:
             for layer in self.feature_layer:
@@ -206,16 +210,21 @@ class QActor(nn.Module):
                     nn.init.kaiming_normal_(layer.weight)
     
     def reset_noise(self):
-        self.noise_layer.reset_noise()
+        self.advantage_hidden_layer.reset_noise()
+        self.advantage_layer.reset_noise()
+        self.value_hidden_layer.reset_noise()
+        self.value_layer.reset_noise()
                 
     def forward(self, state, tl_code, action_parameters):
         x = torch.reshape(state, (-1, 21))  # 7*3变为1*21 torch.Size([1, 21])
         x = x.float() 
         tl_code = torch.reshape(tl_code, (-1, 7)) # 5 维变为 1*5
         x = torch.cat((x, tl_code, action_parameters), dim=1)
-        x1 = self.feature_layer(x)
-        q = self.noise_layer(x1)
-        
+        feature = self.feature_layer(x)
+        adv=self.advantage_layer(F.relu(self.advantage_hidden_layer(feature)))
+        val=self.value_layer(F.relu(self.value_hidden_layer(feature)))
+        q = val + adv - adv.mean(dim=1, keepdim=True)
+
         return q
        
         
