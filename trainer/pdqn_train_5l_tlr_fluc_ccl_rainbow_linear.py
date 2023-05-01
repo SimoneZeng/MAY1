@@ -44,9 +44,8 @@ curPath=os.path.abspath(os.path.dirname(__file__))
 rootPath=os.path.split(os.path.split(curPath)[0])[0]
 sys.path.append(rootPath+'/sumo_test01')
 
-#from pdqn_model_5tl_lstm import PDQNAgent
-from pdqn_model_5tl_rainbow_linear import PDQNAgent
-
+#from model.pdqn_model_5tl_lstm import PDQNAgent
+from model.pdqn_model_5tl_rainbow_linear import PDQNAgent
 
 
 # 引入地址 
@@ -263,7 +262,7 @@ def get_all(control_vehicle, select_dis):
             continue
         if traci.vehicle.getPosition(v)[0] - y_pos > 0 and traci.vehicle.getLaneID(v) == ego_lane:
             if traci.vehicle.getPosition(v)[0] - y_pos < relspace:
-                relspace = traci.vehicle.getPosition(v)[0] - y_pos
+                relspace = traci.vehicle.getPosition(v)[0] - y_pos - 5 #vehicle-length: 5
                 relspeed = traci.vehicle.getSpeed(v) - y_speed
     
     rel_up = {'relspace': relspace, 'relspeed':relspeed}
@@ -602,6 +601,7 @@ def main_train():
         a_dim,
         acc3 = True,
         Kaiming_normal = False,
+        memory_size = 40000,
         device=DEVICE)
     losses_actor = [] # 不需要看第一个memory 即前20000步
     losses_episode = []
@@ -722,7 +722,7 @@ def main_train():
             elif CURRICULUM_STAGE == 2 and switch_count >= SWITCH_COUNT:
                 switch_count = 1
                 globals()['CURRICULUM_STAGE'] = 3
-            elif switch_count >= SWITCH_COUNT:
+            elif CURRICULUM_STAGE == 3 and switch_count >= SWITCH_COUNT:
                 switch_count = 1
                 globals()['CURRICULUM_STAGE'] = 1
         globals()['PRE_LANE']=None
