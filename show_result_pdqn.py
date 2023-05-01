@@ -21,7 +21,7 @@ memory_size = 20000 # 20000 200000 bmem
 TRAIN = False # True False
 PRETRAIN = False # True False 加入预训练
 
-record_dir = './0424/result_record_pdqn_3r_5tl_tlr_noctrl_linear_5l'
+record_dir = './0423/result_pdqn_5l_tlr_lstm/test'
 # record_dir = './result_record_pdqn_3r_5tl_tlr_noctrl_linear_5l'
 
 # 1. 整理每个epo的数据，获得df_all_epo
@@ -222,20 +222,28 @@ if TRAIN:
     # plt.plot(losses_cut['0']) # 折线图
     plt.scatter(losses_cut.index, losses_cut['0'],s=1, alpha=0.05) # 散点图 s点大小 alpha 透明度 
 
+finish_epo = df_all_epo[(df_all_epo['position_y']>3080)]
+
 # 统计模型指标
 print('r_avg', df_all_epo[-1000:]['r_avg'].mean())
 print('position_y', df_all_epo[-1000:]['position_y'].mean())
 if len(df_all_epo) >= 1000:
     print('finish', len(df_all_epo[-1000:][(df_all_epo[-1000:]['position_y'] > 3080)]), 
           len(df_all_epo[-1000:][(df_all_epo[-1000:]['position_y'] > 3080)]) / 1000)
-    print('success lane change', len(df_all_epo[-1000:][(df_all_epo[-1000:]['dis_to_target_lane'] == 0)]),
-          len(df_all_epo[-1000:][(df_all_epo[-1000:]['dis_to_target_lane'] == 0)])/ 1000)
+    # print('success lane change', len(df_all_epo[-1000:][(df_all_epo[-1000:]['dis_to_target_lane'] == 0)]),
+    #       len(df_all_epo[-1000:][(df_all_epo[-1000:]['dis_to_target_lane'] == 0)])/ 1000)
 else:
     print('finish', len(df_all_epo[-1000:][(df_all_epo[-1000:]['position_y'] > 3080)]), 
           len(df_all_epo[-1000:][(df_all_epo[-1000:]['position_y'] > 3080)]) / len(df_all_epo))
-    print('success lane change', len(df_all_epo[-1000:][(df_all_epo[-1000:]['dis_to_target_lane'] == 0)]),
-          len(df_all_epo[-1000:][(df_all_epo[-1000:]['dis_to_target_lane'] == 0)])/ len(df_all_epo))
+    # print('success lane change', len(df_all_epo[-1000:][(df_all_epo[-1000:]['dis_to_target_lane'] == 0)]),
+    #       len(df_all_epo[-1000:][(df_all_epo[-1000:]['dis_to_target_lane'] == 0)])/ len(df_all_epo))
 
-
+# success lane change 在finish_epo的基础上进行统计
+if len(finish_epo) >= 1000:
+    print('success lane change', len(finish_epo[-1000:][(finish_epo[-1000:]['dis_to_target_lane'] == 0)]),
+          len(finish_epo[-1000:][(finish_epo[-1000:]['dis_to_target_lane'] == 0)])/ 1000)
+else:
+    print('success lane change', len(finish_epo[-1000:][(finish_epo[-1000:]['dis_to_target_lane'] == 0)]),
+          len(finish_epo[-1000:][(finish_epo[-1000:]['dis_to_target_lane'] == 0)])/ len(finish_epo))
 
 
