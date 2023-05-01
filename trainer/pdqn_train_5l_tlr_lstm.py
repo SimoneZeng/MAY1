@@ -44,8 +44,9 @@ curPath=os.path.abspath(os.path.dirname(__file__))
 rootPath=os.path.split(os.path.split(curPath)[0])[0]
 sys.path.append(rootPath+'/sumo_test01')
 
-#from pdqn_model_5tl_lstm import PDQNAgent
-from pdqn_model_5tl_linear import PDQNAgent
+from model.pdqn_model_5tl_lstm import PDQNAgent
+#from model.pdqn_model_5tl_linear import PDQNAgent
+
 
 # 引入地址 
 sumo_path = os.environ['SUMO_HOME'] # "D:\\sumo\\sumo1.13.0"
@@ -53,7 +54,7 @@ sumo_path = os.environ['SUMO_HOME'] # "D:\\sumo\\sumo1.13.0"
 # cfg_path2 = "D:\Git\MAY1\sumo\one_way_5l.sumocfg" # 1.在本地用这个cfg_path
 cfg_path1 = "/data1/zengximu/sumo_test01/sumo/one_way_2l.sumocfg" # 2. 在服务器上用这个cfg_path
 cfg_path2 = "/data1/zengximu/sumo_test01/sumo/one_way_5l.sumocfg" # 2. 在服务器上用这个cfg_path
-OUT_DIR="result_pdqn_5l_tlr_cl_linear"
+OUT_DIR="result_pdqn_5l_tlr_lstm"
 sys.path.append(sumo_path)
 sys.path.append(sumo_path + "/tools")
 sys.path.append(sumo_path + "/tools/xml")
@@ -89,7 +90,7 @@ tl_list = [[0,1,0,0,0,0,1], [1,1,0,1,1,1,0], [1,0,1,1,0,0,0]] # 0 是右车道
 # state 1: only ego vehicle, no surrounding vehicles
 # state 2: ego + surrounding vehicles
 # state 3: ego + surrounding vehicles + target lane
-CURRICULUM_STAGE = 1
+CURRICULUM_STAGE = 3
 SWITCH_COUNT = 50 # the minimal episode count
 PRE_LANE = None
 RL_CONTROL = 500 # Rl agent take control after 500 meters
@@ -261,7 +262,7 @@ def get_all(control_vehicle, select_dis):
             continue
         if traci.vehicle.getPosition(v)[0] - y_pos > 0 and traci.vehicle.getLaneID(v) == ego_lane:
             if traci.vehicle.getPosition(v)[0] - y_pos < relspace:
-                relspace = traci.vehicle.getPosition(v)[0] - y_pos
+                relspace = traci.vehicle.getPosition(v)[0] - y_pos - 5 #vehicle-length: 5
                 relspeed = traci.vehicle.getSpeed(v) - y_speed
     
     rel_up = {'relspace': relspace, 'relspeed':relspeed}
@@ -601,6 +602,7 @@ def main_train():
         a_dim,
         acc3 = True,
         Kaiming_normal = False,
+        memory_size = 40000,
         device=DEVICE)
     losses_actor = [] # 不需要看第一个memory 即前20000步
     losses_episode = []
@@ -714,15 +716,16 @@ def main_train():
                 losses_actor.append(loss_actor)
                 losses_episode.append(loss_actor)
             
-        if TRAIN and not truncated and len(losses_episode)>0 and np.average(losses_episode)<=0.02:
-            if CURRICULUM_STAGE == 1 and switch_count >= SWITCH_COUNT:
-                switch_count = 1
-                globals()['CURRICULUM_STAGE'] = 2
-            elif CURRICULUM_STAGE == 2 and switch_count >= SWITCH_COUNT:
-                switch_count = 1
-                globals()['CURRICULUM_STAGE'] = 3
-            # else:
-            #     globals()['CURRICULUM_STAGE'] = 1
+        # if TRAIN and not truncated and len(losses_episode)>0 and np.average(losses_episode)<=0.02:
+        #     if CURRICULUM_STAGE == 1 and switch_count >= SWITCH_COUNT:
+        #         switch_count = 1
+        #         globals()['CURRICULUM_STAGE'] = 2
+        #     elif CURRICULUM_STAGE == 2 and switch_count >= SWITCH_COUNT:
+        #         switch_count = 1
+        #         globals()['CURRICULUM_STAGE'] = 3
+        #     elif CURRICULUM_STAGE == 3 and switch_count >= SWITCH_COUNT:
+        #         switch_count = 1
+        #         globals()['CURRICULUM_STAGE'] = 1
         globals()['PRE_LANE']=None
         losses_episode.clear()
         traci.close(wait=True)
