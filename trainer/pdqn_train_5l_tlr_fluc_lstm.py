@@ -94,6 +94,7 @@ CURRICULUM_STAGE = 3
 SWITCH_COUNT = 50 # the minimal episode count
 PRE_LANE = None
 RL_CONTROL = 500 # Rl agent take control after 500 meters
+UPDATE_FREQ = 50 # Frequency for network updating
 DEVICE = torch.device("cuda:3")
 
 def get_all(control_vehicle, select_dis):
@@ -582,12 +583,23 @@ def train(agent, control_vehicle, episode, target_lane):
                                                 cur_reward, r_safe, r_efficiency, r_comfort, r_tl, r_fluc, r_side, done, 
                                                 all_vehicle, new_all_vehicle]], columns = cols))
     
-    if TRAIN and (agent._step > agent.minimal_size):
+    
+    loss_actor = Q_loss = None
+    if TRAIN and (len(agent.memory) > agent.minimal_size):
     # if TRAIN and (agent._step > agent.batch_size):
-        loss_actor, Q_loss = agent.learn()
-        print('!!!!!!! actor的loss ', loss_actor, 'q的loss ', Q_loss)
-    else:
-        loss_actor = Q_loss = None
+        if agent._step % UPDATE_FREQ == 0:
+            # save current network hidden_state
+            actor_hidden_H, actor_hidden_C = deepcopy(torch.clone(agent.actor.hidden_state[0]).detach()), \
+                deepcopy(torch.clone(agent.actor.hidden_state[1]).detach())
+            param_hidden_H, param_hidden_C = deepcopy(torch.clone(agent.param.hidden_state[0]).detach()), \
+                deepcopy(torch.clone(agent.param.hidden_state[1]).detach())
+            
+            loss_actor, Q_loss = agent.learn()
+
+            agent.actor.init_hidden(actor_hidden_H, actor_hidden_C)
+            agent.param.init_hidden(param_hidden_H, param_hidden_C)
+            # recover network lstm hidden-state
+            print('!!!!!!! actor的loss ', loss_actor, 'q的loss ', Q_loss)
     
     return collision, loss_actor, Q_loss
 
@@ -602,6 +614,8 @@ def main_train():
         acc3 = True,
         Kaiming_normal = False,
         memory_size = 40000,
+        batch_size=128,
+        n_step=5,
         device=DEVICE)
     losses_actor = [] # 不需要看第一个memory 即前20000步
     losses_episode = []

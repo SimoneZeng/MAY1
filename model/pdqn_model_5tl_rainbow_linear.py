@@ -30,7 +30,7 @@ import numpy as np
 import torch
 from torch import nn
 import torch.nn.functional as F
-from model.replay_buffer import ReplayBuffer
+from model.replay_buffer import NSTEPReplayBuffer, ReplayBuffer
 
 
 class NoisyLinear(nn.Module):
@@ -225,7 +225,8 @@ class PDQNAgent(nn.Module):
             lr_param=0.0001,
             acc3 = True, # action_acc = 3 * action_parameters
             NormalNoise = False, # 高斯噪声
-            Kaiming_normal = False, # 网络参数初始化
+            Kaiming_normal = False, # 网络参数初始化,
+            n_step = 1, # n-step learning
             device = torch.device(
                 "cuda" if torch.cuda.is_available() else "cpu")
     ):
@@ -255,6 +256,7 @@ class PDQNAgent(nn.Module):
         self.epsilon_decay = epsilon_decay
         self._step = 0
         self._learn_step = 0
+        self.n_step = n_step
         
         self.num_action = 3 # 3 kinds of discrete action
         self.action_param_sizes = np.array([self.action_dim, self.action_dim, self.action_dim]) # 1, 1, 1
@@ -266,7 +268,10 @@ class PDQNAgent(nn.Module):
         self.action_param_min = torch.from_numpy(self.action_param_min_numpy).float().to(self.device)
         self.action_param_offsets = self.action_param_sizes.cumsum() # 不知道干嘛的
         self.action_param_offsets = np.insert(self.action_param_offsets, 0, 0)
-        self.memory = ReplayBuffer(self.state_dim, self.action_param_size, self.tl_dim, self.memory_size, self.batch_size)
+        if self.n_step >1:
+            self.memory = NSTEPReplayBuffer(self.state_dim, self.action_param_size, self.tl_dim, self.memory_size, self.batch_size, self.n_step, self.gamma)
+        else:
+            self.memory = ReplayBuffer(self.state_dim, self.action_param_size, self.tl_dim, self.memory_size, self.batch_size)
 
         self.actor = QActor(self.state_dim, self.tl_dim, self.num_action, self.action_param_size, self.Kaiming_normal).to(self.device)
         self.actor_target = QActor(self.state_dim, self.tl_dim, self.num_action, self.action_param_size, self.Kaiming_normal).to(self.device)
@@ -434,7 +439,8 @@ class PDQNAgent(nn.Module):
             next_q_value = self.actor_target(b_next_state, b_next_tl_code, next_action_parameters) # [32, 21] [32, 3]
             q_prime = torch.max(next_q_value, 1, keepdim=True)[0] # q_prime torch.Size([128, 1])
             # Compute the TD error
-            target = b_reward + (1 - b_done) * self.gamma * q_prime # target torch.Size([128, 1])
+            gamma = self.gamma**self.n_step
+            target = b_reward + (1 - b_done) * gamma * q_prime # target torch.Size([128, 1])
         
         # Compute current Q-values using policy network
         q_values = self.actor(b_state, b_tl_code, b_action_param) # [32, 21] [32, 3]

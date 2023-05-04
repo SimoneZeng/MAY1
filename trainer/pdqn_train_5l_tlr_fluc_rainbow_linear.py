@@ -582,7 +582,7 @@ def train(agent, control_vehicle, episode, target_lane):
                                                 cur_reward, r_safe, r_efficiency, r_comfort, r_tl, r_fluc, r_side, done, 
                                                 all_vehicle, new_all_vehicle]], columns = cols))
     
-    if TRAIN and (agent._step > agent.minimal_size):
+    if TRAIN and (len(agent.memory) > agent.minimal_size):
     # if TRAIN and (agent._step > agent.batch_size):
         loss_actor, Q_loss = agent.learn()
         print('!!!!!!! actor的loss ', loss_actor, 'q的loss ', Q_loss)
@@ -602,6 +602,7 @@ def main_train():
         acc3 = True,
         Kaiming_normal = False,
         memory_size = 40000,
+        n_step=5,
         device=DEVICE)
     losses_actor = [] # 不需要看第一个memory 即前20000步
     losses_episode = []

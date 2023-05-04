@@ -54,7 +54,7 @@ cfg_path1 = "D:\Git\MAY1\sumo\one_way_2l.sumocfg" # 1.在本地用这个cfg_path
 cfg_path2 = "D:\Git\MAY1\sumo\one_way_5l.sumocfg" # 1.在本地用这个cfg_path
 # cfg_path1 = "/data1/zengximu/sumo_test01/sumo/one_way_2l.sumocfg" # 2. 在服务器上用这个cfg_path
 # cfg_path2 = "/data1/zengximu/sumo_test01/sumo/one_way_5l.sumocfg" # 2. 在服务器上用这个cfg_path
-OUT_DIR="result_pdqn_5l_tlr_fluc_ccl_rainbow_linear"
+OUT_DIR="result_pdqn_5l_tlr_fluc_fluc_ccl_rainbow_linear"
 sys.path.append(sumo_path)
 sys.path.append(sumo_path + "/tools")
 sys.path.append(sumo_path + "/tools/xml")
@@ -63,7 +63,7 @@ from sumolib import checkBinary
 
 # os.environ['CUDA_VISIBLE_DEVICES']='0, 1'  # 显卡使用
 EPISODE_NUM=20000
-TRAIN = True # False True
+TRAIN = False # False True
 gui = False # False True # 是否打开gui
 if gui == 1:
     sumoBinary = checkBinary('sumo-gui')
@@ -94,7 +94,8 @@ CURRICULUM_STAGE = 1
 SWITCH_COUNT = 50 # the minimal episode count
 PRE_LANE = None
 RL_CONTROL = 500 # Rl agent take control after 500 meters
-DEVICE = torch.device("cuda:0")
+LEARNER_DEVICE = torch.device("cuda:3")
+WORKER_DEVICE = torch.device("cuda:2")
 
 def get_all(control_vehicle, select_dis):
     """
@@ -582,7 +583,7 @@ def train(agent, control_vehicle, episode, target_lane):
                                                 cur_reward, r_safe, r_efficiency, r_comfort, r_tl, r_fluc, r_side, done, 
                                                 all_vehicle, new_all_vehicle]], columns = cols))
     
-    if TRAIN and (len(agent.memory) > agent.minimal_size):
+    if TRAIN and (agent._step > agent.minimal_size):
     # if TRAIN and (agent._step > agent.batch_size):
         loss_actor, Q_loss = agent.learn()
         print('!!!!!!! actor的loss ', loss_actor, 'q的loss ', Q_loss)
@@ -602,8 +603,7 @@ def main_train():
         acc3 = True,
         Kaiming_normal = False,
         memory_size = 40000,
-        n_step=5,
-        device=DEVICE)
+        device=WORKER_DEVICE)
     losses_actor = [] # 不需要看第一个memory 即前20000步
     losses_episode = []
     
@@ -716,16 +716,16 @@ def main_train():
                 losses_actor.append(loss_actor)
                 losses_episode.append(loss_actor)
             
-        # if TRAIN and not truncated and len(losses_episode)>0 and np.average(losses_episode)<=0.02:
-        #     if CURRICULUM_STAGE == 1 and switch_count >= SWITCH_COUNT:
-        #         switch_count = 1
-        #         globals()['CURRICULUM_STAGE'] = 2
-        #     elif CURRICULUM_STAGE == 2 and switch_count >= SWITCH_COUNT:
-        #         switch_count = 1
-        #         globals()['CURRICULUM_STAGE'] = 3
-        #     elif CURRICULUM_STAGE == 3 and switch_count >= SWITCH_COUNT:
-        #         switch_count = 1
-        #         globals()['CURRICULUM_STAGE'] = 1
+        if TRAIN and not truncated and len(losses_episode)>0 and np.average(losses_episode)<=0.02:
+            if CURRICULUM_STAGE == 1 and switch_count >= SWITCH_COUNT:
+                switch_count = 1
+                globals()['CURRICULUM_STAGE'] = 2
+            elif CURRICULUM_STAGE == 2 and switch_count >= SWITCH_COUNT:
+                switch_count = 1
+                globals()['CURRICULUM_STAGE'] = 3
+            elif CURRICULUM_STAGE == 3 and switch_count >= SWITCH_COUNT:
+                switch_count = 1
+                globals()['CURRICULUM_STAGE'] = 1
         globals()['PRE_LANE']=None
         losses_episode.clear()
         traci.close(wait=True)

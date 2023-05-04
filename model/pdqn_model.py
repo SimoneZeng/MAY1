@@ -59,7 +59,6 @@ class QActor(nn.Module):
         x = x.float() 
         x = torch.cat((x, action_parameters), dim=1)
         q = self.feature_layer(x)
-        # print("qqqqqqq ", q)
         
         return q
        

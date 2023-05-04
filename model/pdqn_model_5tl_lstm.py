@@ -32,7 +32,8 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from torch.autograd import Variable
-from model.replay_buffer import ReplayBuffer
+from copy import deepcopy
+from model.replay_buffer import NSTEPReplayBuffer
 
 
 class QActor(nn.Module):
@@ -51,31 +52,35 @@ class QActor(nn.Module):
         self.action_size = action_size
         self.action_param_size = action_param_size
         self.tl_size = tl_size
-        
-        inputSize = self.state_size + self.action_param_size + self.tl_size
+        self.hidden_state = None
         
         # set common feature layer
-        self.feature_layer = nn.Sequential(
-            nn.Linear(inputSize, 128), 
-            nn.ReLU(),
-            nn.Linear(128, 256),
-            nn.ReLU(),
-            nn.Linear(256, self.action_size),
-        )
-        
-        if kaiming_normal:
-            for layer in self.feature_layer:
-                if isinstance(layer, nn.Linear):
-                    nn.init.kaiming_normal_(layer.weight)
+        self.lstm_layer = nn.LSTM(self.state_size + self.tl_size + self.action_param_size, 128, batch_first=True)
+        self.output = nn.Linear(128, self.action_size)
                 
-    def forward(self, state, tl_code, action_parameters):
+    def forward(self, state, tl_code, action_parameters, init_hidden=False):
         x = torch.reshape(state, (-1, 21))  # 7*3变为1*21 torch.Size([1, 21])
-        x = x.float() 
-        tl_code = torch.reshape(tl_code, (-1, 7)) # 5 维变为 1*5
-        x = torch.cat((x, tl_code, action_parameters), dim=1)
-        q = self.feature_layer(x)
+        batch_size = x.shape[0]
+        x = x.float().reshape((-1, 1, 21))
+        tl_code = torch.reshape(tl_code, (-1, 1, 7)) # 5 维变为 1*5
+        action_parameters = torch.reshape(action_parameters, (-1, 1, 3))
+        x = torch.cat((x, tl_code, action_parameters), dim=2)
+
+        if init_hidden or self.hidden_state is None:
+             #nn.LSTM以张量作为隐藏状态
+            self.hidden_state=(torch.zeros((1, batch_size, 128), device=next(self.lstm_layer.parameters()).device),
+                torch.zeros((1, batch_size, 128), device=next(self.lstm_layer.parameters()).device))
+            
+        y, self.hidden_state = self.lstm_layer(x, self.hidden_state)
+        q = self.output(y)
         
         return q
+    
+    def init_hidden(self, H=None, C=None):
+        if H is None or C is None:
+            self.hidden_state=None
+        else:
+            self.hidden_state=(H, C)
        
         
 class ParamActor(nn.Module):
@@ -91,27 +96,38 @@ class ParamActor(nn.Module):
         self.state_size = state_size
         self.tl_size = tl_size
         self.action_param_size = action_param_size
-        inputSize = self.state_size + self.tl_size
+        self.hidden_state=None
         
-        self.lstm_layer = nn.LSTM(inputSize, 128)
+        self.lstm_layer = nn.LSTM(self.state_size + self.tl_size, 128, batch_first=True)
         self.output = nn.Linear(128, self.action_param_size)
         
-    def forward(self, state, tl_code):
+    def forward(self, state, tl_code, init_hidden=False):
         x = torch.reshape(state, (-1, 21))
-        x = x.float() # 否则报错expected scalar type Float but found Double
-        tl_code = torch.reshape(tl_code, (-1, 7)) # 5 维变为 1*5
-        x = torch.cat((x, tl_code), dim=1)
+        batch_size = x.shape[0]
+        x = x.float().reshape((-1, 1, 21))  # 否则报错expected scalar type Float but found Double
+        tl_code = torch.reshape(tl_code, (-1, 1, 7)) # 5 维变为 1*5
+        x = torch.cat((x, tl_code), dim=2)
         
-        y, state = self.lstm_layer(x) # type(state)  <class 'tuple'> len  2 type(y)  <class 'torch.Tensor'>
+        if init_hidden or self.hidden_state is None:
+            #nn.LSTM以张量作为隐藏状态
+            self.hidden_state=(torch.zeros((1, batch_size, 128), device=next(self.lstm_layer.parameters()).device),
+                torch.zeros((1, batch_size, 128), device=next(self.lstm_layer.parameters()).device))
+
+        y, self.hidden_state = self.lstm_layer(x, self.hidden_state) # type(state)  <class 'tuple'> len  2 type(y)  <class 'torch.Tensor'>
         # print(state)
         # print('type(state) ', type(state), 'type(y) ', type(y)) # 
         # print('state len ', len(state), 'y.shape ', y.shape)
-        self.lstm_layer()
         action = self.output(y)
-        
         action = torch.tanh(action) # n * 3维的action
         
         return action
+    
+    def init_hidden(self, H=None, C=None):
+        if H is None or C is None:
+            self.hidden_state=None
+        else:
+            self.hidden_state=(H, C)
+    
 
 class PDQNAgent(nn.Module):
     def __init__(
@@ -129,7 +145,8 @@ class PDQNAgent(nn.Module):
             lr_param=0.0001,
             acc3 = True, # action_acc = 3 * action_parameters
             NormalNoise = False, # 高斯噪声
-            Kaiming_normal = False, # 网络参数初始化
+            Kaiming_normal = False, # 网络参数初始化,
+            n_step = 5, # n_step learning
             device = torch.device(
                 "cuda" if torch.cuda.is_available() else "cpu")
     ):
@@ -159,6 +176,7 @@ class PDQNAgent(nn.Module):
         self.epsilon_decay = epsilon_decay
         self._step = 0
         self._learn_step = 0
+        self.n_step=n_step
         
         self.num_action = 3 # 3 kinds of discrete action
         self.action_param_sizes = np.array([self.action_dim, self.action_dim, self.action_dim]) # 1, 1, 1
@@ -170,7 +188,7 @@ class PDQNAgent(nn.Module):
         self.action_param_min = torch.from_numpy(self.action_param_min_numpy).float().to(self.device)
         self.action_param_offsets = self.action_param_sizes.cumsum() # 不知道干嘛的
         self.action_param_offsets = np.insert(self.action_param_offsets, 0, 0)
-        self.memory = ReplayBuffer(self.state_dim, self.action_param_size, self.tl_dim, self.memory_size, self.batch_size)
+        self.memory = NSTEPReplayBuffer(self.state_dim, self.action_param_size, self.tl_dim, self.memory_size, self.batch_size, self.n_step,self.gamma)
 
         self.actor = QActor(self.state_dim, self.tl_dim, self.num_action, self.action_param_size, self.Kaiming_normal).to(self.device)
         self.actor_target = QActor(self.state_dim, self.tl_dim, self.num_action, self.action_param_size, self.Kaiming_normal).to(self.device)
@@ -186,7 +204,7 @@ class PDQNAgent(nn.Module):
         self.param_optimizer = torch.optim.Adam(self.param.parameters(), lr=self.lr_param)
 
 
-    def choose_action(self, state, tl_code, train=True):
+    def choose_action(self, state, tl_code, init_hidden=False, train=True):
         if train:
             # epsilon 更新
             self._epsilon = max(
@@ -197,7 +215,7 @@ class PDQNAgent(nn.Module):
             with torch.no_grad(): # 不生成计算图，减少显存开销
                 state = torch.tensor(state, device=self.device)
                 tl_code = torch.tensor(tl_code, device=self.device)
-                all_action_parameters = self.param.forward(state, tl_code) # 1*3 维连续 param
+                all_action_parameters = self.param.forward(state, tl_code, init_hidden) # 1*3 维连续 param
                 print("Network output -- all_action_param: ",all_action_parameters)
                 
                 if self._epsilon > np.random.random(): # 探索率随着迭代次数增加而减小
@@ -215,7 +233,7 @@ class PDQNAgent(nn.Module):
                                     np.random.uniform(self.action_param_min_numpy, self.action_param_max_numpy)).to(self.device)
                             all_action_parameters = all_action_parameters.unsqueeze(0).to(torch.float32) # np是64的精度，转为32的精度
 
-                Q_value = self.actor.forward(state, tl_code, all_action_parameters) # 1*3 维 所有离散动作的Q_value
+                Q_value = self.actor.forward(state, tl_code, all_action_parameters, init_hidden) # 1*3 维 所有离散动作的Q_value
                 Q_value = Q_value.detach().cpu().numpy() # tensor 转换为 numpy格式
                 action = np.argmax(Q_value)
                 all_action_parameters = all_action_parameters.squeeze() # 变为3维 连续 param
@@ -229,8 +247,8 @@ class PDQNAgent(nn.Module):
             with torch.no_grad(): 
                 state = torch.tensor(state, device=self.device)
                 tl_code = torch.tensor(tl_code, device=self.device)
-                all_action_parameters = self.param.forward(state, tl_code) # 1*3 维连续 param
-                Q_value = self.actor.forward(state, tl_code, all_action_parameters) # 1*3 维 所有离散动作的Q_value
+                all_action_parameters = self.param.forward(state, tl_code, init_hidden) # 1*3 维连续 param
+                Q_value = self.actor.forward(state, tl_code, all_action_parameters, init_hidden) # 1*3 维 所有离散动作的Q_value
                 Q_value = Q_value.detach().cpu().numpy() # tensor 转换为 numpy格式
                 action = np.argmax(Q_value)
                 all_action_parameters = all_action_parameters.squeeze() # 变为3维 连续 param
@@ -332,16 +350,44 @@ class PDQNAgent(nn.Module):
         b_reward = torch.FloatTensor(samples["rew"].reshape(-1, 1)).to(device)
         b_done = torch.FloatTensor(samples["done"].reshape(-1, 1)).to(device)
 
+        b_prev_obs = torch.FloatTensor(samples["prev_obs"]).to(device).permute(1, 0, 2)
+        b_prev_tl_codes = torch.FloatTensor(samples["prev_tl_code"]).to(device).permute(1, 0, 2)
+        b_prev_actions = torch.LongTensor(samples["prev_acts"]).to(device).permute(1, 0, 2)
+        b_prev_action_params = torch.FloatTensor(samples["prev_acts_param"]).to(device).permute(1, 0, 2)
+        #print(samples["prev_obs"].shape, samples["prev_tl_code"].shape, samples["prev_acts"].shape, samples["prev_acts_param"].shape, sep='\n')
+        #print(samples["obs"].shape, samples["tl_code"].shape, samples["act"].shape, samples["act_param"].shape, sep='\n')
+        
+        # retrieve 4 previous state in sequence
+        self.actor.init_hidden()
+        self.actor_target.init_hidden()
+        self.param.init_hidden()
+        self.param_target.init_hidden()
+        for i in range(self.n_step-1):
+            b_prev_ob = b_prev_obs[i, :, :]
+            b_prev_tl_code = b_prev_tl_codes[i, :, :]
+            b_prev_action = b_prev_actions[i, :, :].reshape(-1, 1)
+            b_prev_action_param = b_prev_action_params[i, :, :]
+            #print(b_prev_ob.shape, b_prev_tl_code.shape, b_prev_action.shape, b_prev_action_param.shape, sep='\n')
+            
+            self.param(b_prev_ob, b_prev_tl_code)
+            self.param_target(b_prev_ob, b_prev_tl_code)
+            self.actor( b_prev_ob, b_prev_tl_code, b_prev_action_param)
+            self.actor_target(b_prev_ob, b_prev_tl_code, b_prev_action_param)
+
         # -----------------------optimize Q actor------------------------
         with torch.no_grad():
             next_action_parameters = self.param_target.forward(b_next_state, b_next_tl_code) # b_next_state torch.Size([32, 21])
             next_q_value = self.actor_target(b_next_state, b_next_tl_code, next_action_parameters) # [32, 21] [32, 3]
             q_prime = torch.max(next_q_value, 1, keepdim=True)[0] # q_prime torch.Size([128, 1])
             # Compute the TD error
-            target = b_reward + (1 - b_done) * self.gamma * q_prime # target torch.Size([128, 1])
+            gamma = self.gamma ** self.n_step
+            target = b_reward + (1 - b_done) * gamma * q_prime # target torch.Size([128, 1])
         
         # Compute current Q-values using policy network
-        q_values = self.actor(b_state, b_tl_code, b_action_param) # [32, 21] [32, 3]
+        hidden_H, hidden_C = deepcopy(torch.clone(self.actor.hidden_state[0]).detach()), \
+            deepcopy(torch.clone(self.actor.hidden_state[1]).detach())
+        #hidden_state=deepcopy(torch.clone(self.actor.hidden_state))
+        q_values = self.actor(b_state, b_tl_code, b_action_param).squeeze(1) # [32, 21] [32, 3]
         y_predicted = q_values.gather(1, b_action.view(-1, 1)) # gather函数可以看作一种索引
         loss_actor = self.loss_func(y_predicted, target) # loss 是torch.Tensor的形式
         ret_loss_actor = loss_actor.detach().cpu().numpy()
@@ -357,13 +403,13 @@ class PDQNAgent(nn.Module):
         with torch.no_grad():
             action_params = self.param(b_state, b_tl_code)
         action_params.requires_grad = True
+        self.actor.hidden_state=(hidden_H, hidden_C)
         Q_val = self.actor(b_state, b_tl_code, action_params)
         Q_loss = torch.mean(torch.sum(Q_val, 1)) # 这里不知道为什么？？
         self.actor.zero_grad()
         Q_loss.backward()
         
         # ==============================
-        from copy import deepcopy
         delta_a = deepcopy(action_params.grad.data)
         action_params = self.param(b_state, b_tl_code)
         delta_a[:] = self._invert_gradients(delta_a, action_params, grad_type="action_parameters", inplace=True)
