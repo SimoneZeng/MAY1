@@ -30,6 +30,8 @@ import numpy as np
 import torch
 from torch import nn
 import torch.nn.functional as F
+from torch.autograd import Variable
+from copy import deepcopy
 from model.replay_buffer import NSTEPReplayBuffer, ReplayBuffer
 
 
@@ -210,12 +212,18 @@ class ParamActor(nn.Module):
         return action        
 
 class PDQNAgent(nn.Module):
+    #We use two buffers: `memory` and `memory_n` for 1-step transitions and n-step transitions respectively. 
+    #It guarantees that any paired 1-step and n-step transitions have the same indices.
+    #Due to the reason, we can sample pairs of transitions from the two buffers once we have indices for samples.
+    #One thing to note that  we are gonna combine 1-step loss and n-step loss so as to control 
+    #high-variance / high-bias trade-off in agent tarining.
     def __init__(
             self, 
             state_dim = 3*7, 
             action_dim: int =1, 
             tl_dim: int = 7,
-            memory_size: int = 20000,
+            memory_size: int = 40000,
+            minimal_size: int = 5000,
             batch_size: int = 128, # former 32
             epsilon_initial=1.0,
             epsilon_final=0.05,
@@ -238,7 +246,7 @@ class PDQNAgent(nn.Module):
         self.state_dim = state_dim
         self.tl_dim = tl_dim
         self.memory_size = memory_size
-        self.minimal_size = batch_size
+        self.minimal_size = minimal_size
         self.batch_size = batch_size
         self.lr_actor, self.lr_param = lr_actor, lr_param
         self.gamma = gamma
@@ -268,10 +276,9 @@ class PDQNAgent(nn.Module):
         self.action_param_min = torch.from_numpy(self.action_param_min_numpy).float().to(self.device)
         self.action_param_offsets = self.action_param_sizes.cumsum() # 不知道干嘛的
         self.action_param_offsets = np.insert(self.action_param_offsets, 0, 0)
-        if self.n_step >1:
-            self.memory = NSTEPReplayBuffer(self.state_dim, self.action_param_size, self.tl_dim, self.memory_size, self.batch_size, self.n_step, self.gamma)
-        else:
-            self.memory = ReplayBuffer(self.state_dim, self.action_param_size, self.tl_dim, self.memory_size, self.batch_size)
+        self.memory = NSTEPReplayBuffer(self.state_dim, self.action_param_size, self.tl_dim, self.memory_size, self.batch_size, self.n_step, self.gamma)
+        # if self.n_step >1:
+        #     self.memory_n = NSTEPReplayBuffer(self.state_dim, self.action_param_size, self.tl_dim, self.memory_size, self.batch_size, self.n_step, self.gamma)
 
         self.actor = QActor(self.state_dim, self.tl_dim, self.num_action, self.action_param_size, self.Kaiming_normal).to(self.device)
         self.actor_target = QActor(self.state_dim, self.tl_dim, self.num_action, self.action_param_size, self.Kaiming_normal).to(self.device)
@@ -288,6 +295,7 @@ class PDQNAgent(nn.Module):
 
 
     def choose_action(self, state, tl_code, train=True):
+        self._step += 1
         if train:
             # epsilon 更新
             self._epsilon = max(
@@ -400,7 +408,6 @@ class PDQNAgent(nn.Module):
     #         self._learn_step += 1
         
     def store_transition(self, obs, tl, act, act_param, rew, next_obs, next_tl, done):
-        self._step += 1
         
         obs = np.reshape(obs, (-1, 1)) # 列数为1，行数-1根据列数来确定
         obs = np.squeeze(obs)
@@ -417,6 +424,8 @@ class PDQNAgent(nn.Module):
        
         self.transition = [obs, tl, act, act_param, rew, next_obs, next_tl, done]
         self.memory.store(*self.transition) # store 没有返回值
+        # if self.n_step > 1:
+        #     self.memory_n.store(*self.transition)
 
     def learn(self):
         self._learn_step += 1        
@@ -465,7 +474,6 @@ class PDQNAgent(nn.Module):
         Q_loss.backward()
         
         # ==============================
-        from copy import deepcopy
         delta_a = deepcopy(action_params.grad.data)
         action_params = self.param(b_state, b_tl_code)
         delta_a[:] = self._invert_gradients(delta_a, action_params, grad_type="action_parameters", inplace=True)
@@ -487,7 +495,7 @@ class PDQNAgent(nn.Module):
         self.actor.reset_noise()
         self.actor_target.reset_noise()
         
-        return ret_loss_actor, Q_loss
+        return ret_loss_actor, Q_loss.detach().cpu().numpy()
 
     def soft_update_target_network(self, net, target_net, tau):
         for param_target, param in zip(target_net.parameters(), net.parameters()):

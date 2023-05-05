@@ -33,7 +33,7 @@ from torch import nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 from copy import deepcopy
-from model.replay_buffer import NSTEPReplayBuffer
+from model.replay_buffer import RecurrentReplayBuffer
 
 
 class QActor(nn.Module):
@@ -135,7 +135,8 @@ class PDQNAgent(nn.Module):
             state_dim = 3*7, 
             action_dim: int =1, 
             tl_dim: int = 7,
-            memory_size: int = 20000,
+            memory_size: int = 40000,
+            minimal_size: int = 5000,
             batch_size: int = 128, # former 32
             epsilon_initial=1.0,
             epsilon_final=0.05,
@@ -147,6 +148,7 @@ class PDQNAgent(nn.Module):
             NormalNoise = False, # 高斯噪声
             Kaiming_normal = False, # 网络参数初始化,
             n_step = 5, # n_step learning
+            burn_in_step = 20, # burn in step for R2D2
             device = torch.device(
                 "cuda" if torch.cuda.is_available() else "cpu")
     ):
@@ -158,7 +160,7 @@ class PDQNAgent(nn.Module):
         self.state_dim = state_dim
         self.tl_dim = tl_dim
         self.memory_size = memory_size
-        self.minimal_size = batch_size
+        self.minimal_size = minimal_size
         self.batch_size = batch_size
         self.lr_actor, self.lr_param = lr_actor, lr_param
         self.gamma = gamma
@@ -177,6 +179,7 @@ class PDQNAgent(nn.Module):
         self._step = 0
         self._learn_step = 0
         self.n_step=n_step
+        self.burn_in_step=burn_in_step
         
         self.num_action = 3 # 3 kinds of discrete action
         self.action_param_sizes = np.array([self.action_dim, self.action_dim, self.action_dim]) # 1, 1, 1
@@ -188,7 +191,7 @@ class PDQNAgent(nn.Module):
         self.action_param_min = torch.from_numpy(self.action_param_min_numpy).float().to(self.device)
         self.action_param_offsets = self.action_param_sizes.cumsum() # 不知道干嘛的
         self.action_param_offsets = np.insert(self.action_param_offsets, 0, 0)
-        self.memory = NSTEPReplayBuffer(self.state_dim, self.action_param_size, self.tl_dim, self.memory_size, self.batch_size, self.n_step,self.gamma)
+        self.memory = RecurrentReplayBuffer(self.state_dim, self.action_param_size, self.tl_dim, self.memory_size, self.batch_size, self.n_step, self.burn_in_step, self.gamma)
 
         self.actor = QActor(self.state_dim, self.tl_dim, self.num_action, self.action_param_size, self.Kaiming_normal).to(self.device)
         self.actor_target = QActor(self.state_dim, self.tl_dim, self.num_action, self.action_param_size, self.Kaiming_normal).to(self.device)
@@ -205,6 +208,7 @@ class PDQNAgent(nn.Module):
 
 
     def choose_action(self, state, tl_code, init_hidden=False, train=True):
+        self._step += 1
         if train:
             # epsilon 更新
             self._epsilon = max(
@@ -317,7 +321,6 @@ class PDQNAgent(nn.Module):
     #         self._learn_step += 1
         
     def store_transition(self, obs, tl, act, act_param, rew, next_obs, next_tl, done):
-        self._step += 1
         
         obs = np.reshape(obs, (-1, 1)) # 列数为1，行数-1根据列数来确定
         obs = np.squeeze(obs)
@@ -362,7 +365,7 @@ class PDQNAgent(nn.Module):
         self.actor_target.init_hidden()
         self.param.init_hidden()
         self.param_target.init_hidden()
-        for i in range(self.n_step-1):
+        for i in range(self.burn_in_step-1):
             b_prev_ob = b_prev_obs[i, :, :]
             b_prev_tl_code = b_prev_tl_codes[i, :, :]
             b_prev_action = b_prev_actions[i, :, :].reshape(-1, 1)
@@ -427,7 +430,7 @@ class PDQNAgent(nn.Module):
         self.soft_update_target_network(self.actor, self.actor_target, self.tau_actor)
         self.soft_update_target_network(self.param, self.param_target, self.tau_param)
         
-        return ret_loss_actor, Q_loss
+        return ret_loss_actor, Q_loss.detach().cpu().numpy()
 
     def soft_update_target_network(self, net, target_net, tau):
         for param_target, param in zip(target_net.parameters(), net.parameters()):

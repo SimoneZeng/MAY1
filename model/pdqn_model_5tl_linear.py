@@ -32,6 +32,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from torch.autograd import Variable
+from copy import deepcopy
 from model.replay_buffer import ReplayBuffer
 
 
@@ -125,7 +126,8 @@ class PDQNAgent(nn.Module):
             state_dim = 3*7, 
             action_dim: int =1, 
             tl_dim: int = 7,
-            memory_size: int = 20000,
+            memory_size: int = 40000,
+            minimal_size: int = 5000,
             batch_size: int = 128, # former 32
             epsilon_initial=1.0,
             epsilon_final=0.05,
@@ -147,7 +149,7 @@ class PDQNAgent(nn.Module):
         self.state_dim = state_dim
         self.tl_dim = tl_dim
         self.memory_size = memory_size
-        self.minimal_size = batch_size
+        self.minimal_size = minimal_size
         self.batch_size = batch_size
         self.lr_actor, self.lr_param = lr_actor, lr_param
         self.gamma = gamma
@@ -193,6 +195,7 @@ class PDQNAgent(nn.Module):
 
 
     def choose_action(self, state, tl_code, train=True):
+        self._step += 1
         if train:
             # epsilon 更新
             self._epsilon = max(
@@ -305,7 +308,6 @@ class PDQNAgent(nn.Module):
     #         self._learn_step += 1
         
     def store_transition(self, obs, tl, act, act_param, rew, next_obs, next_tl, done):
-        self._step += 1
         
         obs = np.reshape(obs, (-1, 1)) # 列数为1，行数-1根据列数来确定
         obs = np.squeeze(obs)
@@ -369,7 +371,6 @@ class PDQNAgent(nn.Module):
         Q_loss.backward()
         
         # ==============================
-        from copy import deepcopy
         delta_a = deepcopy(action_params.grad.data)
         action_params = self.param(b_state, b_tl_code)
         delta_a[:] = self._invert_gradients(delta_a, action_params, grad_type="action_parameters", inplace=True)
@@ -387,7 +388,7 @@ class PDQNAgent(nn.Module):
         self.soft_update_target_network(self.actor, self.actor_target, self.tau_actor)
         self.soft_update_target_network(self.param, self.param_target, self.tau_param)
         
-        return ret_loss_actor, Q_loss
+        return ret_loss_actor, Q_loss.detach().cpu().numpy()
 
     def soft_update_target_network(self, net, target_net, tau):
         for param_target, param in zip(target_net.parameters(), net.parameters()):

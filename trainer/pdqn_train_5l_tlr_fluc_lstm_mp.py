@@ -40,6 +40,8 @@ import random
 import os, sys, shutil
 import pandas as pd
 import math
+import multiprocessing as mp
+from multiprocessing import Process, Queue, Pipe, connection, Lock
 curPath=os.path.abspath(os.path.dirname(__file__))
 rootPath=os.path.split(os.path.split(curPath)[0])[0]
 sys.path.append(rootPath+'/sumo_test01')
@@ -54,7 +56,7 @@ sumo_path = os.environ['SUMO_HOME'] # "D:\\sumo\\sumo1.13.0"
 # cfg_path2 = "D:\Git\MAY1\sumo\one_way_5l.sumocfg" # 1.在本地用这个cfg_path
 cfg_path1 = "/data1/zengximu/sumo_test01/sumo/one_way_2l.sumocfg" # 2. 在服务器上用这个cfg_path
 cfg_path2 = "/data1/zengximu/sumo_test01/sumo/one_way_5l.sumocfg" # 2. 在服务器上用这个cfg_path
-OUT_DIR="result_pdqn_5l_tlr_fluc_lstm"
+OUT_DIR="result_pdqn_5l_tlr_fluc_lstm_mp"
 sys.path.append(sumo_path)
 sys.path.append(sumo_path + "/tools")
 sys.path.append(sumo_path + "/tools/xml")
@@ -94,7 +96,6 @@ CURRICULUM_STAGE = 3
 SWITCH_COUNT = 50 # the minimal episode count
 PRE_LANE = None
 RL_CONTROL = 500 # Rl agent take control after 500 meters
-UPDATE_FREQ = 50 # Frequency for network updating
 DEVICE = torch.device("cuda:3")
 
 def get_all(control_vehicle, select_dis):
@@ -272,7 +273,7 @@ def get_all(control_vehicle, select_dis):
     return Id_list, rel_up, Id_dict
 
 
-def train(worker, learner, control_vehicle, episode, target_lane):
+def train(worker, lock, traj_q, agent_q, control_vehicle, episode, target_lane):
     '''
     1. 该函数使用agent根据state得出lane change action，对应的 action_acc，和 all_action_parameters
     2. 执行速度控制
@@ -370,13 +371,15 @@ def train(worker, learner, control_vehicle, episode, target_lane):
         collision=1
         done = 1
         train_step = worker._step
-        print(f"---- train_step:{train_step}  target_lane:{target_lane} ----")
+        print(f"---- worker_step:{worker._step} learner_step:{worker._learn_step} target_lane:{target_lane} ----")
         print(f"before store---obs:{all_vehicle} \n"
             f"act:{action_lc_int} act_param:{all_action_parameters} \n" 
             f"rew:{inf}\n"
             f"next_obs:{np.zeros((7,3))} \ndone:{done}" )
-        learner.store_transition(all_vehicle, tl_code, action_lc_int, all_action_parameters, inf, np.zeros((7,3)), tl_code, done)
-        worker.store_transition(all_vehicle, tl_code, action_lc_int, all_action_parameters, inf, np.zeros((7,3)), tl_code, done)
+        traj_q.put((deepcopy(all_vehicle), deepcopy(tl_code), deepcopy(action_lc_int), deepcopy(all_action_parameters),
+                inf, deepcopy(np.zeros((7,3))), deepcopy(tl_code), done), block=True, timeout=None)
+        # learner.store_transition(all_vehicle, tl_code, action_lc_int, all_action_parameters, inf, np.zeros((7,3)), tl_code, done)
+        # worker.store_transition(all_vehicle, tl_code, action_lc_int, all_action_parameters, inf, np.zeros((7,3)), tl_code, done)
         df_record = df_record.append(pd.DataFrame([[CURRICULUM_STAGE,episode, train_step, pre_ego_info_dict['position'][0], 
                                                     target_lane, pre_ego_info_dict['LaneID'], 
                                                     pre_ego_info_dict['speed'], action_lc_int, pre_ego_info_dict['acc'], action_acc, change_lane, 
@@ -388,13 +391,15 @@ def train(worker, learner, control_vehicle, episode, target_lane):
         collision=1
         done = 1
         train_step = worker._step
-        print(f"---- train_step:{train_step}  target_lane:{target_lane} ----")
+        print(f"---- worker_step:{worker._step} learner_step:{worker._learn_step}rget_lane:{target_lane} ----")
         print(f"before store---obs:{all_vehicle} \n"
             f"act:{action_lc_int} act_param:{all_action_parameters} \n" 
             f"rew:{inf}\n"
             f"next_obs:{np.zeros((7,3))} \ndone:{done}" )
-        learner.store_transition(all_vehicle, tl_code, action_lc_int, all_action_parameters, inf, np.zeros((7,3)), tl_code, done)
-        worker.store_transition(all_vehicle, tl_code, action_lc_int, all_action_parameters, inf, np.zeros((7,3)), tl_code, done)
+        traj_q.put((deepcopy(all_vehicle), deepcopy(tl_code), deepcopy(action_lc_int), deepcopy(all_action_parameters),
+                inf, deepcopy(np.zeros((7,3))), deepcopy(tl_code), done), block=True, timeout=None)
+        # learner.store_transition(all_vehicle, tl_code, action_lc_int, all_action_parameters, inf, np.zeros((7,3)), tl_code, done)
+        # worker.store_transition(all_vehicle, tl_code, action_lc_int, all_action_parameters, inf, np.zeros((7,3)), tl_code, done)
         df_record = df_record.append(pd.DataFrame([[CURRICULUM_STAGE,episode, train_step, pre_ego_info_dict['position'][0], 
                                                     target_lane, pre_ego_info_dict['LaneID'], 
                                                     pre_ego_info_dict['speed'], action_lc_int, pre_ego_info_dict['acc'], action_acc, change_lane, 
@@ -559,13 +564,15 @@ def train(worker, learner, control_vehicle, episode, target_lane):
         collision=1
         done = 1
         train_step = worker._step
-        print(f"---- train_step:{train_step}  target_lane:{target_lane} ----")
+        print(f"---- worker_step:{worker._step} learner_step:{worker._learn_step} target_lane:{target_lane} ----")
         print(f"before store---obs:{all_vehicle} \n"
             f"act:{action_lc_int} act_param:{all_action_parameters} \n" 
             f"rew:{cur_reward} safe:{r_safe} efficiency:{r_efficiency} comfort:{r_comfort} target_lane_reward:{r_tl} fluctuation:{r_fluc}\n"
             f"next_obs:{new_all_vehicle} \ndone:{done}" )
-        learner.store_transition(all_vehicle, tl_code, action_lc_int, all_action_parameters, inf_car, new_all_vehicle, tl_code, done)
-        worker.store_transition(all_vehicle, tl_code, action_lc_int, all_action_parameters, inf_car, new_all_vehicle, tl_code, done)
+        traj_q.put((deepcopy(all_vehicle), deepcopy(tl_code), deepcopy(action_lc_int), deepcopy(all_action_parameters),
+                inf_car, deepcopy(new_all_vehicle), deepcopy(tl_code), done), block=True, timeout=None)
+        # learner.store_transition(all_vehicle, tl_code, action_lc_int, all_action_parameters, inf_car, new_all_vehicle, tl_code, done)
+        # worker.store_transition(all_vehicle, tl_code, action_lc_int, all_action_parameters, inf_car, new_all_vehicle, tl_code, done)
         df_record = df_record.append(pd.DataFrame([[CURRICULUM_STAGE,episode, train_step, cur_ego_info_dict['position'][0], 
                                             target_lane, cur_ego_info_dict['LaneID'], 
                                             cur_ego_info_dict['speed'], action_lc_int, cur_ego_info_dict['acc'], action_acc, change_lane, 
@@ -574,13 +581,15 @@ def train(worker, learner, control_vehicle, episode, target_lane):
         return collision, loss_actor, Q_loss
     
     train_step = worker._step
-    print(f"---- train_step:{train_step}  target_lane:{target_lane} ----")
+    print(f"---- worker_step:{worker._step} learner_step:{worker._learn_step}  target_lane:{target_lane} ----")
     print(f"before store---obs:{all_vehicle} \n"
         f"act:{action_lc_int} act_param:{all_action_parameters} \n" 
         f"rew:{cur_reward} safe:{r_safe} efficiency:{r_efficiency} comfort:{r_comfort} target_lane_reward:{r_tl} fluctuation:{r_fluc}\n"
         f"next_obs:{new_all_vehicle} \ndone:{done}" )
-    learner.store_transition(all_vehicle, tl_code, action_lc_int, all_action_parameters, cur_reward, new_all_vehicle, tl_code, done)
-    worker.store_transition(all_vehicle, tl_code, action_lc_int, all_action_parameters, cur_reward, new_all_vehicle, tl_code, done)
+    traj_q.put((deepcopy(all_vehicle), deepcopy(tl_code), deepcopy(action_lc_int), deepcopy(all_action_parameters),\
+                cur_reward, deepcopy(new_all_vehicle), deepcopy(tl_code), done), block=True, timeout=None)
+    # learner.store_transition(all_vehicle, tl_code, action_lc_int, all_action_parameters, cur_reward, new_all_vehicle, tl_code, done)
+    # worker.store_transition(all_vehicle, tl_code, action_lc_int, all_action_parameters, cur_reward, new_all_vehicle, tl_code, done)
     df_record = df_record.append(pd.DataFrame([[CURRICULUM_STAGE,episode, train_step, cur_ego_info_dict['position'][0], 
                                                 target_lane, cur_ego_info_dict['LaneID'], 
                                                 cur_ego_info_dict['speed'], action_lc_int, cur_ego_info_dict['acc'], action_acc, change_lane,
@@ -589,34 +598,47 @@ def train(worker, learner, control_vehicle, episode, target_lane):
     
     
     loss_actor = Q_loss = None
-    if TRAIN and (len(learner.memory) > learner.minimal_size):
-    # if TRAIN and (agent._step > agent.batch_size):
-        if learner._step % UPDATE_FREQ == 0:
-            # save current network hidden_state
-            # actor_hidden_H, actor_hidden_C = deepcopy(torch.clone(worker.actor.hidden_state[0]).detach()), \
-            #     deepcopy(torch.clone(worker.actor.hidden_state[1]).detach())
-            # param_hidden_H, param_hidden_C = deepcopy(torch.clone(worker.param.hidden_state[0]).detach()), \
-            #     deepcopy(torch.clone(worker.param.hidden_state[1]).detach())
+    if TRAIN and not agent_q.empty():
+        lock.acquire()
+        model_dict=torch.load(f"./{OUT_DIR}/learner.pth", map_location=DEVICE)
+        worker.actor.load_state_dict(model_dict["actor"])
+        worker.actor_target.load_state_dict(model_dict["actor_target"])
+        worker.param.load_state_dict(model_dict["param"])
+        worker.param_target.load_state_dict(model_dict["param_target"])
+        _learn_step, loss_actor, Q_loss = agent_q.get()
+        lock.release()
+        worker._learn_step=_learn_step
+
+        print('!!!!!!! actor的loss ', loss_actor, 'q的loss ', Q_loss)
+
+    # if TRAIN and (len(learner.memory) > learner.minimal_size):
+    # # if TRAIN and (agent._step > agent.batch_size):
+    #     if learner._step % UPDATE_FREQ == 0:
+    #         # save current network hidden_state
+    #         # actor_hidden_H, actor_hidden_C = deepcopy(torch.clone(worker.actor.hidden_state[0]).detach()), \
+    #         #     deepcopy(torch.clone(worker.actor.hidden_state[1]).detach())
+    #         # param_hidden_H, param_hidden_C = deepcopy(torch.clone(worker.param.hidden_state[0]).detach()), \
+    #         #     deepcopy(torch.clone(worker.param.hidden_state[1]).detach())
             
-            loss_actor, Q_loss = learner.learn()
-            torch.save({
-                "actor": learner.actor.state_dict(),
-                "actor_target":learner.actor_target.state_dict(),
-                "param":learner.param.state_dict(),
-                "param_target":learner.param_target.state_dict()
-            }, f"./{OUT_DIR}/learner.pth")
+    #         loss_actor, Q_loss = learner.learn()
+    #         torch.save({
+    #             "actor": learner.actor.state_dict(),
+    #             "actor_target":learner.actor_target.state_dict(),
+    #             "param":learner.param.state_dict(),
+    #             "param_target":learner.param_target.state_dict()
+    #         }, f"./{OUT_DIR}/learner.pth")
 
-            # update worker network params
-            model_dict=torch.load(f"./{OUT_DIR}/learner.pth")
-            worker.actor.load_state_dict(model_dict["actor"])
-            worker.actor_target.load_state_dict(model_dict["actor_target"])
-            worker.param.load_state_dict(model_dict["param"])
-            worker.param_target.load_state_dict(model_dict["param_target"])
+    #         # update worker network params
+    #         model_dict=torch.load(f"./{OUT_DIR}/learner.pth")
+    #         worker.actor.load_state_dict(model_dict["actor"])
+    #         worker.actor_target.load_state_dict(model_dict["actor_target"])
+    #         worker.param.load_state_dict(model_dict["param"])
+    #         worker.param_target.load_state_dict(model_dict["param_target"])
 
-            # recover network lstm hidden-state
-            # worker.actor.init_hidden(actor_hidden_H, actor_hidden_C)
-            # worker.param.init_hidden(param_hidden_H, param_hidden_C)
-            print('!!!!!!! actor的loss ', loss_actor, 'q的loss ', Q_loss)
+    #         # recover network lstm hidden-state
+    #         # worker.actor.init_hidden(actor_hidden_H, actor_hidden_C)
+    #         # worker.param.init_hidden(param_hidden_H, param_hidden_C)
+    #         print('!!!!!!! actor的loss ', loss_actor, 'q的loss ', Q_loss)
     
     return collision, loss_actor, Q_loss
 
@@ -624,27 +646,36 @@ def train(worker, learner, control_vehicle, episode, target_lane):
 def main_train():
     a_dim = 1 # 1个连续动作
     s_dim = 3*7    # 状态就是自己+六辆周围车的状态
+    agent_param={
+        "s_dim": s_dim,
+        "a_dim": a_dim,
+        "acc3": True,
+        "Kaiming_normal": False,
+        "memory_size": 40000,
+        "minimal_size": 5000,
+        "batch_size": 128,
+        "n_step": 1,
+        "burn_in_step": 20,
+        "device": DEVICE
+    }
 
     worker = PDQNAgent(
-        s_dim, 
-        a_dim,
-        acc3 = True,
-        Kaiming_normal = False,
-        memory_size = 40000,
-        batch_size=128,
-        n_step=3,
-        burn_in_step=20,
-        device=DEVICE)
-    learner = PDQNAgent(
-        s_dim, 
-        a_dim,
-        acc3 = True,
-        Kaiming_normal = False,
-        memory_size = 40000,
-        batch_size=128,
-        n_step=1,
-        burn_in_step=20,
-        device=DEVICE)
+        state_dim=agent_param["s_dim"],
+        action_dim=agent_param["a_dim"],
+        acc3=agent_param["acc3"],
+        Kaiming_normal=agent_param["Kaiming_normal"],
+        memory_size=agent_param["memory_size"],
+        minimal_size=agent_param["minimal_size"],
+        batch_size=agent_param["batch_size"],
+        n_step=agent_param["n_step"],
+        burn_in_step=agent_param["burn_in_step"],
+        device=agent_param["device"])
+    process=list()
+    traj_q=Queue(maxsize=40000)
+    agent_q=Queue(maxsize=1)
+    lock=Lock()
+    process.append(mp.Process(target=learner_process, args=(lock, traj_q, agent_q, deepcopy(agent_param))))
+
     losses_actor = [] # 不需要看第一个memory 即前20000步
     losses_episode = []
     
@@ -658,6 +689,8 @@ def main_train():
         #load pre-trained model params for further training
         if os.path.exists(f"./model_params/{OUT_DIR}_net_params.pth"):
             worker.load_state_dict(torch.load(f"./model_params/{OUT_DIR}_net_params.pth", map_location=DEVICE))
+
+        [p.start() for p in process]
 
     if not os.path.exists(OUT_DIR):
         os.makedirs(OUT_DIR)
@@ -746,7 +779,7 @@ def main_train():
             traci.vehicle.setLaneChangeMode(control_vehicle, 0b000000000000)
             
             # 5 模型训练
-            collision, loss_actor, _ = train(worker, learner, control_vehicle, epo,  target_lane) # 模拟一个时间步
+            collision, loss_actor, _ = train(worker, lock, traj_q, agent_q, control_vehicle, epo,  target_lane) # 模拟一个时间步
             if collision:
                 truncated = True
                 break
@@ -778,8 +811,52 @@ def main_train():
             torch.save(worker.state_dict(), f"./{OUT_DIR}/net_params.pth") 
             pd.DataFrame(data=losses_actor).to_csv(f"./{OUT_DIR}/losses.csv")
 
+def learner_process(lock:Lock, traj_q: Queue, agent_q: Queue, agent_param:dict):
+    learner = PDQNAgent(
+        state_dim=agent_param["s_dim"],
+        action_dim=agent_param["a_dim"],
+        acc3=agent_param["acc3"],
+        Kaiming_normal=agent_param["Kaiming_normal"],
+        memory_size=agent_param["memory_size"],
+        minimal_size=agent_param["minimal_size"],
+        batch_size=agent_param["batch_size"],
+        n_step=agent_param["n_step"],
+        burn_in_step=agent_param["burn_in_step"],
+        device=agent_param["device"])
+    
+    while(True):
+        k=max(len(learner.memory)//learner.minimal_size, 1)
+        learner.batch_size*=k
+        for _ in range(k):
+            transition=traj_q.get(block=True, timeout=None)
+            obs, tl_code, action, action_param, reward, next_obs, next_tl_code, done = transition[0], transition[1], transition[2], \
+                transition[3], transition[4], transition[5], transition[6], transition[7]
+            learner.store_transition(obs, tl_code, action, action_param, reward, next_obs, next_tl_code, done)
+
+        if len(learner.memory)>=learner.minimal_size:
+            print("LEARN BEGIN")
+            for _ in range(k):
+                loss_actor, Q_loss=learner.learn()
+            #loss_actor, Q_loss=[learner.learn() for _ in range(k)]
+            if not agent_q.full() :
+                # actor=deepcopy(learner.actor.state_dict())
+                # actor_target=deepcopy(learner.actor_target.state_dict())
+                # param=deepcopy(learner.param.state_dict())
+                # param_target=deepcopy(learner.param_target.state_dict())
+                
+                lock.acquire()
+                agent_q.put((deepcopy(learner._learn_step), deepcopy(loss_actor), deepcopy(Q_loss)), block=True, timeout=None)
+                torch.save({
+                    "actor":learner.actor.state_dict(),
+                    "actor_target":learner.actor_target.state_dict(),
+                    "param":learner.param.state_dict(),
+                    "param_target":learner.param_target.state_dict()
+                }, f"./{OUT_DIR}/learner.pth")
+                lock.release()
+                #agent_q.put((actor, actor_target, param, param_target, learner._learn_step, loss_actor, Q_loss), block=True, timeout=None)
 
 if __name__ == '__main__':
+    mp.set_start_method(method="spawn", force=True)
     main_train() 
 #    pass
 

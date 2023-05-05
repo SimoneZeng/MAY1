@@ -603,7 +603,7 @@ def main_train():
         acc3 = True,
         Kaiming_normal = False,
         memory_size = 40000,
-        n_step=5,
+        n_step=3,
         device=DEVICE)
     losses_actor = [] # 不需要看第一个memory 即前20000步
     losses_episode = []
