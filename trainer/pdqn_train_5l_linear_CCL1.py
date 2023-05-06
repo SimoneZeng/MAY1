@@ -641,7 +641,7 @@ def main_train():
         # globals()['PRE_LANE']=None
         traci.close(wait=True)
         switch_cnt += 1
-        if TRAIN and not truncated and switch_cnt >= swicth_min and np.average(losses_episode)<=0.02:
+        if TRAIN and not truncated and switch_cnt >= swicth_min and np.average(losses_episode)<=0.05:
             if CL_Stage == 1:
                 CL_Stage = 2
                 switch_cnt = 0 # 进入下一个stage，switch_cnt清0
