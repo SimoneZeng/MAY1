@@ -8,12 +8,13 @@ Created on Fri May 5 16:38:33 2023
     lane_freq = 10 每10 * 0.5 = 5 s在同一个lane发车
     5m * 25m/s = 125m左右的间距
     每个车道发车 timestep / lane_freq = 50辆车
+    调小了timestep，每个车道30辆车
 @author: Simone
 """
 
 lane_freq = 10 # 每条车道上出发频率，每5个时间步发出一辆车
 
-timestep = 500
+timestep = 300 # 500 300 因为ego_vehile只会出现在5-25
 v0_cnt = 0 # 每条车道上的车辆计数
 v1_cnt = 0
 v2_cnt = 0
