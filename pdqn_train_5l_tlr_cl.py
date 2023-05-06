@@ -40,21 +40,21 @@ import random
 import os, sys, shutil
 import pandas as pd
 import math
-curPath=os.path.abspath(os.path.dirname(__file__))
-rootPath=os.path.split(os.path.split(curPath)[0])[0]
-sys.path.append(rootPath+'/sumo_test01')
+# curPath=os.path.abspath(os.path.dirname(__file__))
+# rootPath=os.path.split(os.path.split(curPath)[0])[0]
+# sys.path.append(rootPath+'/sumo_test01')
 
-from model.pdqn_model_5tl_lstm import PDQNAgent
-#from model.pdqn_model_5tl_linear import PDQNAgent
+#from model.pdqn_model_5tl_lstm import PDQNAgent
+from model.pdqn_model_5tl_rainbow_linear import PDQNAgent
 
 
 # 引入地址 
 sumo_path = os.environ['SUMO_HOME'] # "D:\\sumo\\sumo1.13.0"
-# cfg_path1 = "D:\Git\MAY1\sumo\one_way_2l.sumocfg" # 1.在本地用这个cfg_path
-# cfg_path2 = "D:\Git\MAY1\sumo\one_way_5l.sumocfg" # 1.在本地用这个cfg_path
-cfg_path1 = "/data1/zengximu/sumo_test01/sumo/one_way_2l.sumocfg" # 2. 在服务器上用这个cfg_path
-cfg_path2 = "/data1/zengximu/sumo_test01/sumo/one_way_5l.sumocfg" # 2. 在服务器上用这个cfg_path
-OUT_DIR="result_pdqn_5l_tlr_fluc_lstm"
+cfg_path1 = "D:\Git\MAY1\sumo\one_way_2l.sumocfg" # 1.在本地用这个cfg_path
+cfg_path2 = "D:\Git\MAY1\sumo\one_way_5l.sumocfg" # 1.在本地用这个cfg_path
+# cfg_path1 = "/data1/zengximu/sumo_test01/sumo/one_way_2l.sumocfg" # 2. 在服务器上用这个cfg_path
+# cfg_path2 = "/data1/zengximu/sumo_test01/sumo/one_way_5l.sumocfg" # 2. 在服务器上用这个cfg_path
+OUT_DIR="result_pdqn_5l_tlr_ccl_rainbow_linear"
 sys.path.append(sumo_path)
 sys.path.append(sumo_path + "/tools")
 sys.path.append(sumo_path + "/tools/xml")
@@ -90,12 +90,11 @@ tl_list = [[0,1,0,0,0,0,1], [1,1,0,1,1,1,0], [1,0,1,1,0,0,0]] # 0 是右车道
 # state 1: only ego vehicle, no surrounding vehicles
 # state 2: ego + surrounding vehicles
 # state 3: ego + surrounding vehicles + target lane
-CURRICULUM_STAGE = 3
+CURRICULUM_STAGE = 1
 SWITCH_COUNT = 50 # the minimal episode count
 PRE_LANE = None
 RL_CONTROL = 500 # Rl agent take control after 500 meters
-UPDATE_FREQ = 50 # Frequency for network updating
-DEVICE = torch.device("cuda:3")
+DEVICE = torch.device("cuda:0")
 
 def get_all(control_vehicle, select_dis):
     """
@@ -272,7 +271,7 @@ def get_all(control_vehicle, select_dis):
     return Id_list, rel_up, Id_dict
 
 
-def train(worker, learner, control_vehicle, episode, target_lane):
+def train(agent, control_vehicle, episode, target_lane):
     '''
     1. 该函数使用agent根据state得出lane change action，对应的 action_acc，和 all_action_parameters
     2. 执行速度控制
@@ -301,9 +300,9 @@ def train(worker, learner, control_vehicle, episode, target_lane):
     tl_code = tl_list[target_lane]
 
     if TRAIN:
-        action_lc_int, action_acc, all_action_parameters = worker.choose_action(np.array(all_vehicle), tl_code) # 离散lane change ，连续acc，参数
+        action_lc_int, action_acc, all_action_parameters = agent.choose_action(np.array(all_vehicle), tl_code) # 离散lane change ，连续acc，参数
     else:
-        action_lc_int, action_acc, all_action_parameters = worker.choose_action(np.array(all_vehicle), tl_code, train = False)
+        action_lc_int, action_acc, all_action_parameters = agent.choose_action(np.array(all_vehicle), tl_code, train = False)
     
     inf = -10 # 撞墙惩罚
     inf_car = -10 # 撞车惩罚
@@ -369,14 +368,13 @@ def train(worker, learner, control_vehicle, episode, target_lane):
     if 'EA_0' == pre_ego_info_dict["LaneID"] and change_lane=='right':
         collision=1
         done = 1
-        train_step = worker._step
+        train_step = agent._step
         print(f"---- train_step:{train_step}  target_lane:{target_lane} ----")
         print(f"before store---obs:{all_vehicle} \n"
             f"act:{action_lc_int} act_param:{all_action_parameters} \n" 
             f"rew:{inf}\n"
             f"next_obs:{np.zeros((7,3))} \ndone:{done}" )
-        learner.store_transition(all_vehicle, tl_code, action_lc_int, all_action_parameters, inf, np.zeros((7,3)), tl_code, done)
-        worker.store_transition(all_vehicle, tl_code, action_lc_int, all_action_parameters, inf, np.zeros((7,3)), tl_code, done)
+        agent.store_transition(all_vehicle, tl_code, action_lc_int, all_action_parameters, inf, np.zeros((7,3)), tl_code, done)
         df_record = df_record.append(pd.DataFrame([[CURRICULUM_STAGE,episode, train_step, pre_ego_info_dict['position'][0], 
                                                     target_lane, pre_ego_info_dict['LaneID'], 
                                                     pre_ego_info_dict['speed'], action_lc_int, pre_ego_info_dict['acc'], action_acc, change_lane, 
@@ -387,14 +385,13 @@ def train(worker, learner, control_vehicle, episode, target_lane):
     if 'EA_4' == pre_ego_info_dict["LaneID"] and change_lane=='left':
         collision=1
         done = 1
-        train_step = worker._step
+        train_step = agent._step
         print(f"---- train_step:{train_step}  target_lane:{target_lane} ----")
         print(f"before store---obs:{all_vehicle} \n"
             f"act:{action_lc_int} act_param:{all_action_parameters} \n" 
             f"rew:{inf}\n"
             f"next_obs:{np.zeros((7,3))} \ndone:{done}" )
-        learner.store_transition(all_vehicle, tl_code, action_lc_int, all_action_parameters, inf, np.zeros((7,3)), tl_code, done)
-        worker.store_transition(all_vehicle, tl_code, action_lc_int, all_action_parameters, inf, np.zeros((7,3)), tl_code, done)
+        agent.store_transition(all_vehicle, tl_code, action_lc_int, all_action_parameters, inf, np.zeros((7,3)), tl_code, done)
         df_record = df_record.append(pd.DataFrame([[CURRICULUM_STAGE,episode, train_step, pre_ego_info_dict['position'][0], 
                                                     target_lane, pre_ego_info_dict['LaneID'], 
                                                     pre_ego_info_dict['speed'], action_lc_int, pre_ego_info_dict['acc'], action_acc, change_lane, 
@@ -487,6 +484,7 @@ def train(worker, learner, control_vehicle, episode, target_lane):
         r_fluc = 0
     else:
         r_fluc = -abs(cur_ego_info_dict['LaneIndex'] - PRE_LANE) * (1-abs(r_tl)) * 0.1
+    r_fluc = 0
     globals()['PRE_LANE'] = cur_ego_info_dict['LaneIndex']
     
     # r_side = [] # 记录与前后车的距离
@@ -558,14 +556,13 @@ def train(worker, learner, control_vehicle, episode, target_lane):
               traci.vehicle.getPosition(another_co_id)[1])
         collision=1
         done = 1
-        train_step = worker._step
+        train_step = agent._step
         print(f"---- train_step:{train_step}  target_lane:{target_lane} ----")
         print(f"before store---obs:{all_vehicle} \n"
             f"act:{action_lc_int} act_param:{all_action_parameters} \n" 
             f"rew:{cur_reward} safe:{r_safe} efficiency:{r_efficiency} comfort:{r_comfort} target_lane_reward:{r_tl} fluctuation:{r_fluc}\n"
             f"next_obs:{new_all_vehicle} \ndone:{done}" )
-        learner.store_transition(all_vehicle, tl_code, action_lc_int, all_action_parameters, inf_car, new_all_vehicle, tl_code, done)
-        worker.store_transition(all_vehicle, tl_code, action_lc_int, all_action_parameters, inf_car, new_all_vehicle, tl_code, done)
+        agent.store_transition(all_vehicle, tl_code, action_lc_int, all_action_parameters, inf_car, new_all_vehicle, tl_code, done)
         df_record = df_record.append(pd.DataFrame([[CURRICULUM_STAGE,episode, train_step, cur_ego_info_dict['position'][0], 
                                             target_lane, cur_ego_info_dict['LaneID'], 
                                             cur_ego_info_dict['speed'], action_lc_int, cur_ego_info_dict['acc'], action_acc, change_lane, 
@@ -573,50 +570,25 @@ def train(worker, learner, control_vehicle, episode, target_lane):
                                             all_vehicle, new_all_vehicle]], columns = cols))
         return collision, loss_actor, Q_loss
     
-    train_step = worker._step
+    train_step = agent._step
     print(f"---- train_step:{train_step}  target_lane:{target_lane} ----")
     print(f"before store---obs:{all_vehicle} \n"
         f"act:{action_lc_int} act_param:{all_action_parameters} \n" 
         f"rew:{cur_reward} safe:{r_safe} efficiency:{r_efficiency} comfort:{r_comfort} target_lane_reward:{r_tl} fluctuation:{r_fluc}\n"
         f"next_obs:{new_all_vehicle} \ndone:{done}" )
-    learner.store_transition(all_vehicle, tl_code, action_lc_int, all_action_parameters, cur_reward, new_all_vehicle, tl_code, done)
-    worker.store_transition(all_vehicle, tl_code, action_lc_int, all_action_parameters, cur_reward, new_all_vehicle, tl_code, done)
+    agent.store_transition(all_vehicle, tl_code, action_lc_int, all_action_parameters, cur_reward, new_all_vehicle, tl_code, done)
     df_record = df_record.append(pd.DataFrame([[CURRICULUM_STAGE,episode, train_step, cur_ego_info_dict['position'][0], 
                                                 target_lane, cur_ego_info_dict['LaneID'], 
                                                 cur_ego_info_dict['speed'], action_lc_int, cur_ego_info_dict['acc'], action_acc, change_lane,
                                                 cur_reward, r_safe, r_efficiency, r_comfort, r_tl, r_fluc, r_side, done, 
                                                 all_vehicle, new_all_vehicle]], columns = cols))
     
-    
-    loss_actor = Q_loss = None
-    if TRAIN and (len(learner.memory) > learner.minimal_size):
+    if TRAIN and (len(agent.memory) > agent.minimal_size):
     # if TRAIN and (agent._step > agent.batch_size):
-        if learner._step % UPDATE_FREQ == 0:
-            # save current network hidden_state
-            # actor_hidden_H, actor_hidden_C = deepcopy(torch.clone(worker.actor.hidden_state[0]).detach()), \
-            #     deepcopy(torch.clone(worker.actor.hidden_state[1]).detach())
-            # param_hidden_H, param_hidden_C = deepcopy(torch.clone(worker.param.hidden_state[0]).detach()), \
-            #     deepcopy(torch.clone(worker.param.hidden_state[1]).detach())
-            
-            loss_actor, Q_loss = learner.learn()
-            torch.save({
-                "actor": learner.actor.state_dict(),
-                "actor_target":learner.actor_target.state_dict(),
-                "param":learner.param.state_dict(),
-                "param_target":learner.param_target.state_dict()
-            }, f"./{OUT_DIR}/learner.pth")
-
-            # update worker network params
-            model_dict=torch.load(f"./{OUT_DIR}/learner.pth")
-            worker.actor.load_state_dict(model_dict["actor"])
-            worker.actor_target.load_state_dict(model_dict["actor_target"])
-            worker.param.load_state_dict(model_dict["param"])
-            worker.param_target.load_state_dict(model_dict["param_target"])
-
-            # recover network lstm hidden-state
-            # worker.actor.init_hidden(actor_hidden_H, actor_hidden_C)
-            # worker.param.init_hidden(param_hidden_H, param_hidden_C)
-            print('!!!!!!! actor的loss ', loss_actor, 'q的loss ', Q_loss)
+        loss_actor, Q_loss = agent.learn()
+        print('!!!!!!! actor的loss ', loss_actor, 'q的loss ', Q_loss)
+    else:
+        loss_actor = Q_loss = None
     
     return collision, loss_actor, Q_loss
 
@@ -625,25 +597,13 @@ def main_train():
     a_dim = 1 # 1个连续动作
     s_dim = 3*7    # 状态就是自己+六辆周围车的状态
 
-    worker = PDQNAgent(
+    agent = PDQNAgent(
         s_dim, 
         a_dim,
         acc3 = True,
         Kaiming_normal = False,
         memory_size = 40000,
-        batch_size=128,
-        n_step=3,
-        burn_in_step=20,
-        device=DEVICE)
-    learner = PDQNAgent(
-        s_dim, 
-        a_dim,
-        acc3 = True,
-        Kaiming_normal = False,
-        memory_size = 40000,
-        batch_size=128,
-        n_step=1,
-        burn_in_step=20,
+        n_step=5,
         device=DEVICE)
     losses_actor = [] # 不需要看第一个memory 即前20000步
     losses_episode = []
@@ -652,12 +612,12 @@ def main_train():
         globals()['EPISODE_NUM']=400
         globals()['CURRICULUM_STAGE']=3
         globals()['RL_CONTROL']=1100
-        worker.load_state_dict(torch.load(f"{OUT_DIR}/net_params.pth", map_location=DEVICE))
+        agent.load_state_dict(torch.load(f"{OUT_DIR}/net_params.pth", map_location=DEVICE))
         globals()['OUT_DIR']=f"./{OUT_DIR}/test"
     else:
         #load pre-trained model params for further training
         if os.path.exists(f"./model_params/{OUT_DIR}_net_params.pth"):
-            worker.load_state_dict(torch.load(f"./model_params/{OUT_DIR}_net_params.pth", map_location=DEVICE))
+            agent.load_state_dict(torch.load(f"./model_params/{OUT_DIR}_net_params.pth", map_location=DEVICE))
 
     if not os.path.exists(OUT_DIR):
         os.makedirs(OUT_DIR)
@@ -746,7 +706,7 @@ def main_train():
             traci.vehicle.setLaneChangeMode(control_vehicle, 0b000000000000)
             
             # 5 模型训练
-            collision, loss_actor, _ = train(worker, learner, control_vehicle, epo,  target_lane) # 模拟一个时间步
+            collision, loss_actor, _ = train(agent, control_vehicle, epo,  target_lane) # 模拟一个时间步
             if collision:
                 truncated = True
                 break
@@ -775,7 +735,7 @@ def main_train():
         # 保存
         df_record.to_csv(f"{OUT_DIR}/df_record_epo_{epo}.csv", index = False)
         if TRAIN:
-            torch.save(worker.state_dict(), f"./{OUT_DIR}/net_params.pth") 
+            torch.save(agent.state_dict(), f"./{OUT_DIR}/net_params.pth") 
             pd.DataFrame(data=losses_actor).to_csv(f"./{OUT_DIR}/losses.csv")
 
 

@@ -96,7 +96,8 @@ CURRICULUM_STAGE = 3
 SWITCH_COUNT = 50 # the minimal episode count
 PRE_LANE = None
 RL_CONTROL = 500 # Rl agent take control after 500 meters
-DEVICE = torch.device("cuda:3")
+UPDATE_FREQ = 50 # model update frequency for multiprocess
+DEVICE = torch.device("cuda:2")
 
 def get_all(control_vehicle, select_dis):
     """
@@ -676,6 +677,7 @@ def main_train():
     agent_q=Queue(maxsize=1)
     lock=Lock()
     process.append(mp.Process(target=learner_process, args=(lock, traj_q, agent_q, deepcopy(agent_param))))
+    [p.start() for p in process]
 
     losses_actor = [] # 不需要看第一个memory 即前20000步
     losses_episode = []
@@ -691,8 +693,6 @@ def main_train():
         if os.path.exists(f"./model_params/{OUT_DIR}_net_params.pth"):
             worker.load_state_dict(torch.load(f"./model_params/{OUT_DIR}_net_params.pth", map_location=DEVICE))
 
-        [p.start() for p in process]
-
     if not os.path.exists(OUT_DIR):
         os.makedirs(OUT_DIR)
     else:
@@ -702,6 +702,8 @@ def main_train():
     
     switch_count=1
     for epo in range(EPISODE_NUM): # 测试时可以调小epo回合次数
+        # init agent lstm hidden_state
+        worker.init_hidden()
         truncated = False 
         target_lane = None
         if CURRICULUM_STAGE == 1:
@@ -834,12 +836,12 @@ def learner_process(lock:Lock, traj_q: Queue, agent_q: Queue, agent_param:dict):
                 transition[3], transition[4], transition[5], transition[6], transition[7]
             learner.store_transition(obs, tl_code, action, action_param, reward, next_obs, next_tl_code, done)
 
-        if len(learner.memory)>=learner.minimal_size:
+        if TRAIN and len(learner.memory)>=learner.minimal_size:
             print("LEARN BEGIN")
             for _ in range(k):
                 loss_actor, Q_loss=learner.learn()
             #loss_actor, Q_loss=[learner.learn() for _ in range(k)]
-            if not agent_q.full() :
+            if not agent_q.full() and learner._learn_step % UPDATE_FREQ == 0:
                 # actor=deepcopy(learner.actor.state_dict())
                 # actor_target=deepcopy(learner.actor_target.state_dict())
                 # param=deepcopy(learner.param.state_dict())

@@ -45,7 +45,7 @@ rootPath=os.path.split(os.path.split(curPath)[0])[0]
 sys.path.append(rootPath+'/sumo_test01')
 
 #from model.pdqn_model_5tl_lstm import PDQNAgent
-from model.pdqn_model_5tl_linear import PDQNAgent
+from model.pdqn_model_5tl_rainbow_linear import PDQNAgent
 
 
 # 引入地址 
@@ -54,7 +54,7 @@ sumo_path = os.environ['SUMO_HOME'] # "D:\\sumo\\sumo1.13.0"
 # cfg_path2 = "D:\Git\MAY1\sumo\one_way_5l.sumocfg" # 1.在本地用这个cfg_path
 cfg_path1 = "/data1/zengximu/sumo_test01/sumo/one_way_2l.sumocfg" # 2. 在服务器上用这个cfg_path
 cfg_path2 = "/data1/zengximu/sumo_test01/sumo/one_way_5l.sumocfg" # 2. 在服务器上用这个cfg_path
-OUT_DIR="result_pdqn_5l_tlr_fluc_ccl_linear"
+OUT_DIR="result_pdqn_5l_tlr_ccl_rainbow_linear"
 sys.path.append(sumo_path)
 sys.path.append(sumo_path + "/tools")
 sys.path.append(sumo_path + "/tools/xml")
@@ -484,6 +484,7 @@ def train(agent, control_vehicle, episode, target_lane):
         r_fluc = 0
     else:
         r_fluc = -abs(cur_ego_info_dict['LaneIndex'] - PRE_LANE) * (1-abs(r_tl)) * 0.1
+    r_fluc = 0
     globals()['PRE_LANE'] = cur_ego_info_dict['LaneIndex']
     
     # r_side = [] # 记录与前后车的距离
@@ -582,7 +583,7 @@ def train(agent, control_vehicle, episode, target_lane):
                                                 cur_reward, r_safe, r_efficiency, r_comfort, r_tl, r_fluc, r_side, done, 
                                                 all_vehicle, new_all_vehicle]], columns = cols))
     
-    if TRAIN and (agent._step > agent.minimal_size):
+    if TRAIN and (len(agent.memory) > agent.minimal_size):
     # if TRAIN and (agent._step > agent.batch_size):
         loss_actor, Q_loss = agent.learn()
         print('!!!!!!! actor的loss ', loss_actor, 'q的loss ', Q_loss)
@@ -602,6 +603,7 @@ def main_train():
         acc3 = True,
         Kaiming_normal = False,
         memory_size = 40000,
+        n_step=3,
         device=DEVICE)
     losses_actor = [] # 不需要看第一个memory 即前20000步
     losses_episode = []

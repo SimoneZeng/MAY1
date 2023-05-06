@@ -321,7 +321,6 @@ class PDQNAgent(nn.Module):
     #         self._learn_step += 1
         
     def store_transition(self, obs, tl, act, act_param, rew, next_obs, next_tl, done):
-        
         obs = np.reshape(obs, (-1, 1)) # 列数为1，行数-1根据列数来确定
         obs = np.squeeze(obs)
         tl = np.reshape(tl, (-1, 1)) # 列数为1，行数-1根据列数来确定
@@ -361,10 +360,7 @@ class PDQNAgent(nn.Module):
         #print(samples["obs"].shape, samples["tl_code"].shape, samples["act"].shape, samples["act_param"].shape, sep='\n')
         
         # retrieve 4 previous state in sequence
-        self.actor.init_hidden()
-        self.actor_target.init_hidden()
-        self.param.init_hidden()
-        self.param_target.init_hidden()
+        self.init_hidden()
         for i in range(self.burn_in_step-1):
             b_prev_ob = b_prev_obs[i, :, :]
             b_prev_tl_code = b_prev_tl_codes[i, :, :]
@@ -436,7 +432,8 @@ class PDQNAgent(nn.Module):
         for param_target, param in zip(target_net.parameters(), net.parameters()):
             param_target.data.copy_(param_target.data * (1.0 - tau) + param.data * tau)
 
-
-
-
-
+    def init_hidden(self):
+        self.actor.init_hidden()
+        self.actor_target.init_hidden()
+        self.param.init_hidden()
+        self.param_target.init_hidden()
