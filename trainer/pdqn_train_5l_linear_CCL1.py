@@ -265,19 +265,7 @@ def train(agent, control_vehicle, episode, target_dir, CL_Stage):
     
     # 1. 根据不同stage以及get_all中ego所在lane，修改其target lanes
     all_vehicle, rel_up, v_dict = get_all(control_vehicle, 200)
-    
-    #change ego vehicle information for curriculum stage 1 and stage 2
-    if stage != 3:
-        if all_vehicle[6][1]==-1:
-            target_dir=0
-        elif all_vehicle[6][1]==-0.5 or all_vehicle[6][1]==0:
-            target_dir=1
-        elif all_vehicle[6][1]==0.5:
-            target_dir=random.choice([1, 2])
-        else:
-            target_dir=2
     print("$ v_dict", v_dict)
-    # print("\t", v_dict)
     
     # target_dir_inits 编码
     tl_list = [[0,1,0,0,0,0,1], [1,1,0,1,1,1,0], [1,0,1,1,0,0,0]] # 0 是前方右转，1是直行，2是前方左转
