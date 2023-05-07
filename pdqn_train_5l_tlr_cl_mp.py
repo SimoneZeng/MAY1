@@ -46,7 +46,7 @@ from multiprocessing import Process, Queue, Pipe, connection, Lock
 # rootPath=os.path.split(os.path.split(curPath)[0])[0]
 # sys.path.append(rootPath+'/sumo_test01')
 
-from model.pdqn_model_5tl_lstm import PDQNAgent
+from model.pdqn_model_5tl_lstm_1 import PDQNAgent
 #from model.pdqn_model_5tl_linear import PDQNAgent
 
 
@@ -96,7 +96,7 @@ CURRICULUM_STAGE = 1
 SWITCH_COUNT = 50 # the minimal episode count
 PRE_LANE = None
 RL_CONTROL = 500 # Rl agent take control after 500 meters
-UPDATE_FREQ = 50 # model update frequency for multiprocess
+UPDATE_FREQ = 100 # model update frequency for multiprocess
 DEVICE = torch.device("cuda:0")
 
 def get_all(control_vehicle, select_dis):
@@ -657,7 +657,7 @@ def main_train():
         "minimal_size": 5000,
         "batch_size": 128,
         "n_step": 1,
-        "burn_in_step": 20,
+        "burn_in_step": 30,
         "device": DEVICE
     }
 
@@ -813,6 +813,8 @@ def main_train():
             torch.save(worker.state_dict(), f"./{OUT_DIR}/net_params.pth") 
             pd.DataFrame(data=losses_actor).to_csv(f"./{OUT_DIR}/losses.csv")
 
+    [p.join() for p in process]
+
 def learner_process(lock:Lock, traj_q: Queue, agent_q: Queue, agent_param:dict):
     learner = PDQNAgent(
         state_dim=agent_param["s_dim"],
@@ -837,8 +839,8 @@ def learner_process(lock:Lock, traj_q: Queue, agent_q: Queue, agent_param:dict):
 
         if TRAIN and len(learner.memory)>=learner.minimal_size:
             print("LEARN BEGIN")
-            for _ in range(k):
-                loss_actor, Q_loss=learner.learn()
+            #for _ in range(k):
+            loss_actor, Q_loss=learner.learn()
             #loss_actor, Q_loss=[learner.learn() for _ in range(k)]
             if not agent_q.full() and learner._learn_step % UPDATE_FREQ == 0:
                 # actor=deepcopy(learner.actor.state_dict())
