@@ -74,7 +74,7 @@ class QActor(nn.Module):
         
         feature = self.feature_layer(x)
         y, self.hidden_state = self.lstm_layer(F.relu(feature), self.hidden_state)
-        q = self.output(F.relu(y))
+        q = self.output(y)
         
         return q
     
@@ -121,7 +121,7 @@ class ParamActor(nn.Module):
         # print(state)
         # print('type(state) ', type(state), 'type(y) ', type(y)) # 
         # print('state len ', len(state), 'y.shape ', y.shape)
-        action = self.output(F.relu(y))
+        action = self.output(y)
         action = torch.tanh(action) # n * 3维的action
         
         return action

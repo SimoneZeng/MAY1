@@ -42,9 +42,9 @@ import pandas as pd
 import math
 import multiprocessing as mp
 from multiprocessing import Process, Queue, Pipe, connection, Lock
-# curPath=os.path.abspath(os.path.dirname(__file__))
-# rootPath=os.path.split(os.path.split(curPath)[0])[0]
-# sys.path.append(rootPath+'/sumo_test01')
+curPath=os.path.abspath(os.path.dirname(__file__))
+rootPath=os.path.split(os.path.split(curPath)[0])[0]
+sys.path.append(rootPath+'/sumo_test01')
 
 from model.pdqn_model_5tl_lstm_1 import PDQNAgent
 #from model.pdqn_model_5tl_linear import PDQNAgent
@@ -52,11 +52,11 @@ from model.pdqn_model_5tl_lstm_1 import PDQNAgent
 
 # 引入地址 
 sumo_path = os.environ['SUMO_HOME'] # "D:\\sumo\\sumo1.13.0"
-cfg_path1 = "D:\Git\MAY1\sumo\one_way_2l.sumocfg" # 1.在本地用这个cfg_path
-cfg_path2 = "D:\Git\MAY1\sumo\one_way_5l.sumocfg" # 1.在本地用这个cfg_path
-# cfg_path1 = "/data1/zengximu/sumo_test01/sumo/one_way_2l.sumocfg" # 2. 在服务器上用这个cfg_path
-# cfg_path2 = "/data1/zengximu/sumo_test01/sumo/one_way_5l.sumocfg" # 2. 在服务器上用这个cfg_path
-OUT_DIR="result_pdqn_5l_tlr_lstm_mp_1"
+# cfg_path1 = "D:\Git\MAY1\sumo\one_way_2l.sumocfg" # 1.在本地用这个cfg_path
+# cfg_path2 = "D:\Git\MAY1\sumo\one_way_5l.sumocfg" # 1.在本地用这个cfg_path
+cfg_path1 = "/data1/zengximu/sumo_test01/sumo/one_way_2l.sumocfg" # 2. 在服务器上用这个cfg_path
+cfg_path2 = "/data1/zengximu/sumo_test01/sumo/one_way_5l.sumocfg" # 2. 在服务器上用这个cfg_path
+OUT_DIR="result_pdqn_5l_tlr_ccl_lstm_mp_1_20"
 sys.path.append(sumo_path)
 sys.path.append(sumo_path + "/tools")
 sys.path.append(sumo_path + "/tools/xml")
@@ -92,12 +92,12 @@ tl_list = [[0,1,0,0,0,0,1], [1,1,0,1,1,1,0], [1,0,1,1,0,0,0]] # 0 是右车道
 # state 1: only ego vehicle, no surrounding vehicles
 # state 2: ego + surrounding vehicles
 # state 3: ego + surrounding vehicles + target lane
-CURRICULUM_STAGE = 3
+CURRICULUM_STAGE = 1
 SWITCH_COUNT = 50 # the minimal episode count
 PRE_LANE = None
 RL_CONTROL = 500 # Rl agent take control after 500 meters
 UPDATE_FREQ = 100 # model update frequency for multiprocess
-DEVICE = torch.device("cuda:0")
+DEVICE = torch.device("cuda:2")
 
 def get_all(control_vehicle, select_dis):
     """
@@ -657,7 +657,7 @@ def main_train():
         "minimal_size": 5000,
         "batch_size": 128,
         "n_step": 1,
-        "burn_in_step": 5,
+        "burn_in_step": 20,
         "device": DEVICE
     }
 
@@ -792,16 +792,16 @@ def main_train():
                 losses_actor.append(loss_actor)
                 losses_episode.append(loss_actor)
             
-        # if TRAIN and not truncated and len(losses_episode)>0 and np.average(losses_episode)<=0.02:
-        #     if CURRICULUM_STAGE == 1 and switch_count >= SWITCH_COUNT:
-        #         switch_count = 1
-        #         globals()['CURRICULUM_STAGE'] = 2
-        #     elif CURRICULUM_STAGE == 2 and switch_count >= SWITCH_COUNT:
-        #         switch_count = 1
-        #         globals()['CURRICULUM_STAGE'] = 3
-        #     elif CURRICULUM_STAGE == 3 and switch_count >= SWITCH_COUNT:
-        #         switch_count = 1
-        #         globals()['CURRICULUM_STAGE'] = 1
+        if TRAIN and not truncated and len(losses_episode)>0 and np.average(losses_episode)<=0.02:
+            if CURRICULUM_STAGE == 1 and switch_count >= SWITCH_COUNT:
+                switch_count = 1
+                globals()['CURRICULUM_STAGE'] = 2
+            elif CURRICULUM_STAGE == 2 and switch_count >= SWITCH_COUNT:
+                switch_count = 1
+                globals()['CURRICULUM_STAGE'] = 3
+            elif CURRICULUM_STAGE == 3 and switch_count >= SWITCH_COUNT:
+                switch_count = 1
+                globals()['CURRICULUM_STAGE'] = 1
         globals()['PRE_LANE']=None
         losses_episode.clear()
         traci.close(wait=True)

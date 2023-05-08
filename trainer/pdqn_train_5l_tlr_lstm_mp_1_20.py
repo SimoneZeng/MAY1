@@ -46,7 +46,7 @@ curPath=os.path.abspath(os.path.dirname(__file__))
 rootPath=os.path.split(os.path.split(curPath)[0])[0]
 sys.path.append(rootPath+'/sumo_test01')
 
-from model.pdqn_model_5tl_lstm_2 import PDQNAgent
+from model.pdqn_model_5tl_lstm_1 import PDQNAgent
 #from model.pdqn_model_5tl_linear import PDQNAgent
 
 
@@ -56,7 +56,7 @@ sumo_path = os.environ['SUMO_HOME'] # "D:\\sumo\\sumo1.13.0"
 # cfg_path2 = "D:\Git\MAY1\sumo\one_way_5l.sumocfg" # 1.在本地用这个cfg_path
 cfg_path1 = "/data1/zengximu/sumo_test01/sumo/one_way_2l.sumocfg" # 2. 在服务器上用这个cfg_path
 cfg_path2 = "/data1/zengximu/sumo_test01/sumo/one_way_5l.sumocfg" # 2. 在服务器上用这个cfg_path
-OUT_DIR="result_pdqn_5l_tlr_lstm_mp_2"
+OUT_DIR="result_pdqn_5l_tlr_lstm_mp_1_20"
 sys.path.append(sumo_path)
 sys.path.append(sumo_path + "/tools")
 sys.path.append(sumo_path + "/tools/xml")
@@ -828,11 +828,13 @@ def learner_process(lock:Lock, traj_q: Queue, agent_q: Queue, agent_param:dict):
         n_step=agent_param["n_step"],
         burn_in_step=agent_param["burn_in_step"],
         device=agent_param["device"])
+    if TRAIN and os.path.exists(f"./model_params/{OUT_DIR}_net_params.pth"):
+        learner.load_state_dict(torch.load(f"./model_params/{OUT_DIR}_net_params.pth", map_location=DEVICE))
     
     while(True):
         k=max(len(learner.memory)//learner.minimal_size, 1)
-        learner.batch_size*=k
-        for _ in range(k):
+        #learner.batch_size*=k
+        for _ in range(UPDATE_FREQ):
             transition=traj_q.get(block=True, timeout=None)
             obs, tl_code, action, action_param, reward, next_obs, next_tl_code, done = transition[0], transition[1], transition[2], \
                 transition[3], transition[4], transition[5], transition[6], transition[7]
@@ -840,8 +842,8 @@ def learner_process(lock:Lock, traj_q: Queue, agent_q: Queue, agent_param:dict):
 
         if TRAIN and len(learner.memory)>=learner.minimal_size:
             print("LEARN BEGIN")
-            #for _ in range(k):
-            loss_actor, Q_loss=learner.learn()
+            for _ in range(UPDATE_FREQ):
+                loss_actor, Q_loss=learner.learn()
             #loss_actor, Q_loss=[learner.learn() for _ in range(k)]
             if not agent_q.full() and learner._learn_step % UPDATE_FREQ == 0:
                 # actor=deepcopy(learner.actor.state_dict())

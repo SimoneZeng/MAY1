@@ -823,11 +823,13 @@ def learner_process(lock:Lock, traj_q: Queue, agent_q: Queue, agent_param:dict):
         batch_size=agent_param["batch_size"],
         n_step=agent_param["n_step"],
         device=agent_param["device"])
+    if TRAIN and os.path.exists(f"./model_params/{OUT_DIR}_net_params.pth"):
+        learner.load_state_dict(torch.load(f"./model_params/{OUT_DIR}_net_params.pth", map_location=DEVICE))
     
     while(True):
         k=max(len(learner.memory)//learner.minimal_size, 1)
         learner.batch_size*=k
-        for _ in range(k):
+        for _ in range(UPDATE_FREQ):
             transition=traj_q.get(block=True, timeout=None)
             obs, tl_code, action, action_param, reward, next_obs, next_tl_code, done = transition[0], transition[1], transition[2], \
                 transition[3], transition[4], transition[5], transition[6], transition[7]
@@ -835,8 +837,8 @@ def learner_process(lock:Lock, traj_q: Queue, agent_q: Queue, agent_param:dict):
 
         if TRAIN and len(learner.memory)>=learner.minimal_size:
             print("LEARN BEGIN")
-            #for _ in range(k):
-            loss_actor, Q_loss=learner.learn()
+            for _ in range(UPDATE_FREQ):
+                loss_actor, Q_loss=learner.learn()
             #loss_actor, Q_loss=[learner.learn() for _ in range(k)]
             if not agent_q.full() and learner._learn_step % UPDATE_FREQ == 0:
                 # actor=deepcopy(learner.actor.state_dict())

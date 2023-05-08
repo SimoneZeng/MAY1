@@ -42,9 +42,9 @@ import pandas as pd
 import math
 import multiprocessing as mp
 from multiprocessing import Process, Queue, Pipe, connection, Lock
-# curPath=os.path.abspath(os.path.dirname(__file__))
-# rootPath=os.path.split(os.path.split(curPath)[0])[0]
-# sys.path.append(rootPath+'/sumo_test01')
+curPath=os.path.abspath(os.path.dirname(__file__))
+rootPath=os.path.split(os.path.split(curPath)[0])[0]
+sys.path.append(rootPath+'/sumo_test01')
 
 from model.pdqn_model_5tl_lstm_1 import PDQNAgent
 #from model.pdqn_model_5tl_linear import PDQNAgent
@@ -52,11 +52,11 @@ from model.pdqn_model_5tl_lstm_1 import PDQNAgent
 
 # 引入地址 
 sumo_path = os.environ['SUMO_HOME'] # "D:\\sumo\\sumo1.13.0"
-cfg_path1 = "D:\Git\MAY1\sumo\one_way_2l.sumocfg" # 1.在本地用这个cfg_path
-cfg_path2 = "D:\Git\MAY1\sumo\one_way_5l.sumocfg" # 1.在本地用这个cfg_path
-# cfg_path1 = "/data1/zengximu/sumo_test01/sumo/one_way_2l.sumocfg" # 2. 在服务器上用这个cfg_path
-# cfg_path2 = "/data1/zengximu/sumo_test01/sumo/one_way_5l.sumocfg" # 2. 在服务器上用这个cfg_path
-OUT_DIR="result_pdqn_5l_tlr_lstm_mp_1"
+# cfg_path1 = "D:\Git\MAY1\sumo\one_way_2l.sumocfg" # 1.在本地用这个cfg_path
+# cfg_path2 = "D:\Git\MAY1\sumo\one_way_5l.sumocfg" # 1.在本地用这个cfg_path
+cfg_path1 = "/data1/zengximu/sumo_test01/sumo/one_way_2l.sumocfg" # 2. 在服务器上用这个cfg_path
+cfg_path2 = "/data1/zengximu/sumo_test01/sumo/one_way_5l.sumocfg" # 2. 在服务器上用这个cfg_path
+OUT_DIR="result_pdqn_5l_tlr_lstm_mp_1_40"
 sys.path.append(sumo_path)
 sys.path.append(sumo_path + "/tools")
 sys.path.append(sumo_path + "/tools/xml")
@@ -97,7 +97,7 @@ SWITCH_COUNT = 50 # the minimal episode count
 PRE_LANE = None
 RL_CONTROL = 500 # Rl agent take control after 500 meters
 UPDATE_FREQ = 100 # model update frequency for multiprocess
-DEVICE = torch.device("cuda:0")
+DEVICE = torch.device("cuda:2")
 
 def get_all(control_vehicle, select_dis):
     """
@@ -493,7 +493,7 @@ def train(worker, lock, traj_q, agent_q, control_vehicle, episode, target_lane):
         r_fluc = 0
     else:
         r_fluc = -abs(cur_ego_info_dict['LaneIndex'] - PRE_LANE) * (1-abs(r_tl)) * 0.1
-    r_fluc = 0
+    r_fluc=0
     globals()['PRE_LANE'] = cur_ego_info_dict['LaneIndex']
     
     # r_side = [] # 记录与前后车的距离
@@ -657,7 +657,7 @@ def main_train():
         "minimal_size": 5000,
         "batch_size": 128,
         "n_step": 1,
-        "burn_in_step": 5,
+        "burn_in_step": 40,
         "device": DEVICE
     }
 
@@ -702,6 +702,7 @@ def main_train():
     
     switch_count=1
     for epo in range(EPISODE_NUM): # 测试时可以调小epo回合次数
+        # init agent lstm hidden_state
         worker.init_hidden()
         truncated = False 
         target_lane = None
