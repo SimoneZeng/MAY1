@@ -55,7 +55,8 @@ class QActor(nn.Module):
         self.hidden_state = None
         
         # set common feature layer
-        self.lstm_layer = nn.LSTM(self.state_size + self.tl_size + self.action_param_size, 128, batch_first=True)
+        self.feature_layer = nn.Linear(self.state_size + self.tl_size + self.action_param_size, 128)
+        self.lstm_layer = nn.LSTM(128, 128, batch_first=True)
         self.output = nn.Linear(128, self.action_size)
                 
     def forward(self, state, tl_code, action_parameters, init_hidden=False):
@@ -70,8 +71,9 @@ class QActor(nn.Module):
              #nn.LSTM以张量作为隐藏状态
             self.hidden_state=(torch.zeros((1, batch_size, 128), device=next(self.lstm_layer.parameters()).device),
                 torch.zeros((1, batch_size, 128), device=next(self.lstm_layer.parameters()).device))
-            
-        y, self.hidden_state = self.lstm_layer(x, self.hidden_state)
+        
+        feature = self.feature_layer(x)
+        y, self.hidden_state = self.lstm_layer(F.relu(feature), self.hidden_state)
         q = self.output(y)
         
         return q
@@ -98,7 +100,8 @@ class ParamActor(nn.Module):
         self.action_param_size = action_param_size
         self.hidden_state=None
         
-        self.lstm_layer = nn.LSTM(self.state_size + self.tl_size, 128, batch_first=True)
+        self.feature_layer = nn.Linear(self.state_size + self.tl_size, 128)
+        self.lstm_layer = nn.LSTM(128, 128, batch_first=True)
         self.output = nn.Linear(128, self.action_param_size)
         
     def forward(self, state, tl_code, init_hidden=False):
@@ -113,7 +116,8 @@ class ParamActor(nn.Module):
             self.hidden_state=(torch.zeros((1, batch_size, 128), device=next(self.lstm_layer.parameters()).device),
                 torch.zeros((1, batch_size, 128), device=next(self.lstm_layer.parameters()).device))
 
-        y, self.hidden_state = self.lstm_layer(x, self.hidden_state) # type(state)  <class 'tuple'> len  2 type(y)  <class 'torch.Tensor'>
+        feature = self.feature_layer(x)
+        y, self.hidden_state = self.lstm_layer(F.relu(feature), self.hidden_state) # type(state)  <class 'tuple'> len  2 type(y)  <class 'torch.Tensor'>
         # print(state)
         # print('type(state) ', type(state), 'type(y) ', type(y)) # 
         # print('state len ', len(state), 'y.shape ', y.shape)

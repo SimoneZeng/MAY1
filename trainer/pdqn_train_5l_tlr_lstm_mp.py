@@ -833,7 +833,7 @@ def learner_process(lock:Lock, traj_q: Queue, agent_q: Queue, agent_param:dict):
     
     while(True):
         k=max(len(learner.memory)//learner.minimal_size, 1)
-        learner.batch_size*=k
+        #learner.batch_size*=k
         for _ in range(UPDATE_FREQ):
             transition=traj_q.get(block=True, timeout=None)
             obs, tl_code, action, action_param, reward, next_obs, next_tl_code, done = transition[0], transition[1], transition[2], \

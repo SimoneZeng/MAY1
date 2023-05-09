@@ -46,7 +46,7 @@ from multiprocessing import Process, Queue, Pipe, connection, Lock
 # rootPath=os.path.split(os.path.split(curPath)[0])[0]
 # sys.path.append(rootPath+'/sumo_test01')
 
-from model.pdqn_model_5tl_lstm_1 import PDQNAgent
+from model.pdqn_model_5tl_lstm import PDQNAgent
 #from model.pdqn_model_5tl_linear import PDQNAgent
 
 
