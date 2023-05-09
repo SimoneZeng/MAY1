@@ -56,7 +56,7 @@ sumo_path = os.environ['SUMO_HOME'] # "D:\\sumo\\sumo1.13.0"
 # cfg_path2 = "D:\Git\MAY1\sumo\one_way_5l.sumocfg" # 1.在本地用这个cfg_path
 cfg_path1 = "/data1/zengximu/sumo_test01/sumo/one_way_2l.sumocfg" # 2. 在服务器上用这个cfg_path
 cfg_path2 = "/data1/zengximu/sumo_test01/sumo/one_way_5l.sumocfg" # 2. 在服务器上用这个cfg_path
-OUT_DIR="result_pdqn_5l_tlr_ccl_lstm_mp"
+OUT_DIR="result_pdqn_5l_lstm_mp"
 sys.path.append(sumo_path)
 sys.path.append(sumo_path + "/tools")
 sys.path.append(sumo_path + "/tools/xml")
@@ -92,7 +92,7 @@ tl_list = [[0,1,0,0,0,0,1], [1,1,0,1,1,1,0], [1,0,1,1,0,0,0]] # 0 是右车道
 # state 1: only ego vehicle, no surrounding vehicles
 # state 2: ego + surrounding vehicles
 # state 3: ego + surrounding vehicles + target lane
-CURRICULUM_STAGE = 1
+CURRICULUM_STAGE = 3
 SWITCH_COUNT = 50 # the minimal episode count
 PRE_LANE = None
 RL_CONTROL = 500 # Rl agent take control after 500 meters
@@ -493,7 +493,7 @@ def train(worker, lock, traj_q, agent_q, control_vehicle, episode, target_lane):
         r_fluc = 0
     else:
         r_fluc = -abs(cur_ego_info_dict['LaneIndex'] - PRE_LANE) * (1-abs(r_tl)) * 0.1
-    r_fluc = 0
+    r_fluc=0
     globals()['PRE_LANE'] = cur_ego_info_dict['LaneIndex']
     
     # r_side = [] # 记录与前后车的距离
@@ -702,6 +702,7 @@ def main_train():
     
     switch_count=1
     for epo in range(EPISODE_NUM): # 测试时可以调小epo回合次数
+        # init agent lstm hidden_state
         worker.init_hidden()
         truncated = False 
         target_lane = None
@@ -792,16 +793,16 @@ def main_train():
                 losses_actor.append(loss_actor)
                 losses_episode.append(loss_actor)
             
-        if TRAIN and not truncated and len(losses_episode)>0 and np.average(losses_episode)<=0.02:
-            if CURRICULUM_STAGE == 1 and switch_count >= SWITCH_COUNT:
-                switch_count = 1
-                globals()['CURRICULUM_STAGE'] = 2
-            elif CURRICULUM_STAGE == 2 and switch_count >= SWITCH_COUNT:
-                switch_count = 1
-                globals()['CURRICULUM_STAGE'] = 3
-            elif CURRICULUM_STAGE == 3 and switch_count >= SWITCH_COUNT:
-                switch_count = 1
-                globals()['CURRICULUM_STAGE'] = 1
+        # if TRAIN and not truncated and len(losses_episode)>0 and np.average(losses_episode)<=0.02:
+        #     if CURRICULUM_STAGE == 1 and switch_count >= SWITCH_COUNT:
+        #         switch_count = 1
+        #         globals()['CURRICULUM_STAGE'] = 2
+        #     elif CURRICULUM_STAGE == 2 and switch_count >= SWITCH_COUNT:
+        #         switch_count = 1
+        #         globals()['CURRICULUM_STAGE'] = 3
+        #     elif CURRICULUM_STAGE == 3 and switch_count >= SWITCH_COUNT:
+        #         switch_count = 1
+        #         globals()['CURRICULUM_STAGE'] = 1
         globals()['PRE_LANE']=None
         losses_episode.clear()
         traci.close(wait=True)

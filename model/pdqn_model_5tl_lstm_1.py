@@ -33,7 +33,7 @@ from torch import nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 from copy import deepcopy
-from model.replay_buffer import RecurrentReplayBuffer
+from model.replay_buffer import RecurrentReplayBuffer, ReplayBuffer
 
 
 class QActor(nn.Module):
@@ -73,14 +73,15 @@ class QActor(nn.Module):
                 torch.zeros((1, batch_size, 128), device=next(self.lstm_layer.parameters()).device))
         
         feature = self.feature_layer(x)
-        y, self.hidden_state = self.lstm_layer(F.relu(feature), self.hidden_state)
+        y, self.hidden_state = self.lstm_layer(F.relu(feature))
         q = self.output(y)
         
         return q
     
-    def init_hidden(self, H=None, C=None):
+    def init_hidden(self, batch_size ,H=None, C=None):
         if H is None or C is None:
-            self.hidden_state=None
+            self.hidden_state=(torch.zeros((1, batch_size, 128), device=next(self.lstm_layer.parameters()).device),
+                torch.zeros((1, batch_size, 128), device=next(self.lstm_layer.parameters()).device))
         else:
             self.hidden_state=(H, C)
        
@@ -117,7 +118,7 @@ class ParamActor(nn.Module):
                 torch.zeros((1, batch_size, 128), device=next(self.lstm_layer.parameters()).device))
 
         feature = self.feature_layer(x)
-        y, self.hidden_state = self.lstm_layer(F.relu(feature), self.hidden_state) # type(state)  <class 'tuple'> len  2 type(y)  <class 'torch.Tensor'>
+        y, self.hidden_state = self.lstm_layer(F.relu(feature)) # type(state)  <class 'tuple'> len  2 type(y)  <class 'torch.Tensor'>
         # print(state)
         # print('type(state) ', type(state), 'type(y) ', type(y)) # 
         # print('state len ', len(state), 'y.shape ', y.shape)
@@ -126,9 +127,10 @@ class ParamActor(nn.Module):
         
         return action
     
-    def init_hidden(self, H=None, C=None):
+    def init_hidden(self,batch_size, H=None, C=None):
         if H is None or C is None:
-            self.hidden_state=None
+            self.hidden_state=(torch.zeros((1, batch_size, 128), device=next(self.lstm_layer.parameters()).device),
+                torch.zeros((1, batch_size, 128), device=next(self.lstm_layer.parameters()).device))
         else:
             self.hidden_state=(H, C)
     
@@ -195,7 +197,10 @@ class PDQNAgent(nn.Module):
         self.action_param_min = torch.from_numpy(self.action_param_min_numpy).float().to(self.device)
         self.action_param_offsets = self.action_param_sizes.cumsum() # 不知道干嘛的
         self.action_param_offsets = np.insert(self.action_param_offsets, 0, 0)
-        self.memory = RecurrentReplayBuffer(self.state_dim, self.action_param_size, self.tl_dim, self.memory_size, self.batch_size, self.n_step, self.burn_in_step, self.gamma)
+        if burn_in_step == 0:
+            self.memory = ReplayBuffer(self.state_dim, self.action_param_size, self.tl_dim, self.memory_size, self.batch_size)
+        else:
+            self.memory = RecurrentReplayBuffer(self.state_dim, self.action_param_size, self.tl_dim, self.memory_size, self.batch_size, self.n_step, self.burn_in_step, self.gamma)
 
         self.actor = QActor(self.state_dim, self.tl_dim, self.num_action, self.action_param_size, self.Kaiming_normal).to(self.device)
         self.actor_target = QActor(self.state_dim, self.tl_dim, self.num_action, self.action_param_size, self.Kaiming_normal).to(self.device)
@@ -342,6 +347,7 @@ class PDQNAgent(nn.Module):
         self.memory.store(*self.transition) # store 没有返回值
 
     def learn(self):
+        self.init_hidden(self.batch_size)
         self._learn_step += 1        
         samples = self.memory.sample_batch()
         
@@ -356,26 +362,26 @@ class PDQNAgent(nn.Module):
         b_reward = torch.FloatTensor(samples["rew"].reshape(-1, 1)).to(device)
         b_done = torch.FloatTensor(samples["done"].reshape(-1, 1)).to(device)
 
-        b_prev_obs = torch.FloatTensor(samples["prev_obs"]).to(device).permute(1, 0, 2)
-        b_prev_tl_codes = torch.FloatTensor(samples["prev_tl_code"]).to(device).permute(1, 0, 2)
-        b_prev_actions = torch.LongTensor(samples["prev_acts"]).to(device).permute(1, 0, 2)
-        b_prev_action_params = torch.FloatTensor(samples["prev_acts_param"]).to(device).permute(1, 0, 2)
+        # b_prev_obs = torch.FloatTensor(samples["prev_obs"]).to(device).permute(1, 0, 2)
+        # b_prev_tl_codes = torch.FloatTensor(samples["prev_tl_code"]).to(device).permute(1, 0, 2)
+        # b_prev_actions = torch.LongTensor(samples["prev_acts"]).to(device).permute(1, 0, 2)
+        # b_prev_action_params = torch.FloatTensor(samples["prev_acts_param"]).to(device).permute(1, 0, 2)
         #print(samples["prev_obs"].shape, samples["prev_tl_code"].shape, samples["prev_acts"].shape, samples["prev_acts_param"].shape, sep='\n')
         #print(samples["obs"].shape, samples["tl_code"].shape, samples["act"].shape, samples["act_param"].shape, sep='\n')
         
         # retrieve 4 previous state in sequence
-        self.init_hidden()
-        for i in range(self.burn_in_step-1):
-            b_prev_ob = b_prev_obs[i, :, :]
-            b_prev_tl_code = b_prev_tl_codes[i, :, :]
-            b_prev_action = b_prev_actions[i, :, :].reshape(-1, 1)
-            b_prev_action_param = b_prev_action_params[i, :, :]
-            #print(b_prev_ob.shape, b_prev_tl_code.shape, b_prev_action.shape, b_prev_action_param.shape, sep='\n')
+        # self.init_hidden()
+        # for i in range(self.burn_in_step-1):
+        #     b_prev_ob = b_prev_obs[i, :, :]
+        #     b_prev_tl_code = b_prev_tl_codes[i, :, :]
+        #     b_prev_action = b_prev_actions[i, :, :].reshape(-1, 1)
+        #     b_prev_action_param = b_prev_action_params[i, :, :]
+        #     #print(b_prev_ob.shape, b_prev_tl_code.shape, b_prev_action.shape, b_prev_action_param.shape, sep='\n')
             
-            self.param(b_prev_ob, b_prev_tl_code)
-            self.param_target(b_prev_ob, b_prev_tl_code)
-            self.actor( b_prev_ob, b_prev_tl_code, b_prev_action_param)
-            self.actor_target(b_prev_ob, b_prev_tl_code, b_prev_action_param)
+        #     self.param(b_prev_ob, b_prev_tl_code)
+        #     self.param_target(b_prev_ob, b_prev_tl_code)
+        #     self.actor( b_prev_ob, b_prev_tl_code, b_prev_action_param)
+        #     self.actor_target(b_prev_ob, b_prev_tl_code, b_prev_action_param)
 
         # -----------------------optimize Q actor------------------------
         with torch.no_grad():
@@ -436,8 +442,8 @@ class PDQNAgent(nn.Module):
         for param_target, param in zip(target_net.parameters(), net.parameters()):
             param_target.data.copy_(param_target.data * (1.0 - tau) + param.data * tau)
 
-    def init_hidden(self):
-        self.actor.init_hidden()
-        self.actor_target.init_hidden()
-        self.param.init_hidden()
-        self.param_target.init_hidden()
+    def init_hidden(self, batch_size):
+        self.actor.init_hidden(batch_size)
+        self.actor_target.init_hidden(batch_size)
+        self.param.init_hidden(batch_size)
+        self.param_target.init_hidden(batch_size)

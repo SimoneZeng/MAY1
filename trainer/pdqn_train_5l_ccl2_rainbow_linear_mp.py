@@ -7,10 +7,12 @@ Created on May Thu 4 22:19:26 2023
 
 stage设计：
 reward一样，每个stage都有r_tl，切换时stage区别跨度较小
-    - 一共5条lane，模拟2条lane，低车流密度，车道编码不变，中间车道都是车
-    - 一共5条lane，低车流密度
-    - 一共5条lane，中车流密度
-    - 一共5条lane，高车流密度
+    - 3条车道是target lanes，车辆密度为低
+    - 2条车道是target lanes，车辆密度为低
+    - 1条车道是target lanes，车辆密度为低
+    - 随机target dir，车辆密度为低
+    - 随机target dir，车辆密度为中
+    - 随机target dir，车辆密度为高
 
 reward权重：
     - efficiency [0, 1]
@@ -34,9 +36,9 @@ import math
 import pprint as pp
 import multiprocessing as mp
 from multiprocessing import Process, Queue, Pipe, connection, Lock
-# curPath=os.path.abspath(os.path.dirname(__file__))
-# rootPath=os.path.split(os.path.split(curPath)[0])[0]
-# sys.path.append(rootPath+'/sumo_test01')
+curPath=os.path.abspath(os.path.dirname(__file__))
+rootPath=os.path.split(os.path.split(curPath)[0])[0]
+sys.path.append(rootPath+'/sumo_test01')
 
 #from model.pdqn_model_5tl_lstm import PDQNAgent
 from model.pdqn_model_5tl_rainbow_linear import PDQNAgent
@@ -45,9 +47,9 @@ from model.pdqn_model_5tl_rainbow_linear import PDQNAgent
 # 引入地址 
 sumo_path = os.environ['SUMO_HOME'] # "D:\\sumo\\sumo1.13.0"
 # sumo_dir = "C:\--codeplace--\sumo_inter\sumo_test01\sumo\\" # 1.在本地用这个cfg_path
-sumo_dir = "D:\Git\MAY1\sumo\\" # 1.在本地用这个cfg_path
-# sumo_dir = "/data1/zengximu/sumo_test01/sumo/" # 2. 在服务器上用这个cfg_path
-OUT_DIR="result_pdqn_5l_cl1_rainbow_linear_mp"
+#sumo_dir = "D:\Git\MAY1\sumo\\" # 1.在本地用这个cfg_path
+sumo_dir = "/data1/zengximu/sumo_test01/sumo/" # 2. 在服务器上用这个cfg_path
+OUT_DIR="result_pdqn_5l_ccl2_rainbow_linear_mp"
 sys.path.append(sumo_path)
 sys.path.append(sumo_path + "/tools")
 sys.path.append(sumo_path + "/tools/xml")
@@ -73,7 +75,7 @@ torch.manual_seed(5)
 # PRE_LANE = None
 RL_CONTROL = 1100 # Rl agent take control after 1100 meters
 UPDATE_FREQ = 100 # model update frequency for multiprocess
-DEVICE = torch.device("cuda:0")
+DEVICE = torch.device("cuda:2")
 # DEVICE = torch.device("cpu")
 
 def get_all(control_vehicle, select_dis):
@@ -570,7 +572,7 @@ def main_train():
     # (1) 区分train和test的参数设置，以及output位置
     if not TRAIN:
         episode_num = 400 # test的episode上限
-        CL_Stage = 4 # test都在最后一个stage进行
+        CL_Stage = 6 # test都在最后一个stage进行
         worker.load_state_dict(torch.load(f"{OUT_DIR}/net_params.pth", map_location=DEVICE))
         globals()['RL_CONTROL']=1100
         globals()['OUT_DIR']=f"./{OUT_DIR}/test"
@@ -594,21 +596,25 @@ def main_train():
         target_dir_init = None # 初始的target_dir，目标转向方向
         
         # (3) 根据不同的CL_Stage启动对应的sumoCmd
-        # stage 1 在5车道中模拟2车道，之后的stage都是5车道
-        cfg_path = f"{sumo_dir}cfg_CL1_s{CL_Stage}.sumocfg"
+        if CL_Stage in [1, 2, 3, 4]:
+            cfg_path = f"{sumo_dir}cfg_CL2_low.sumocfg"
+        elif CL_Stage == 5:
+            cfg_path = f"{sumo_dir}cfg_CL2_mid.sumocfg"
+        elif CL_Stage == 6:
+            cfg_path = f"{sumo_dir}cfg_CL2_high.sumocfg"
         sumoCmd = [sumoBinary, "-c", cfg_path, "--log", f"{OUT_DIR}/logfile_{CL_Stage}.txt"]
         traci.start(sumoCmd)
         ego_index = 5 + epo % 20   # 选取随机车道第index辆出发的车为我们的自动驾驶车
-        if CL_Stage == 1:            
-            departLane=np.random.choice([0,1,3,4]) # 除2车道外，随机初始ego的lane
-            ego_index_str = str(departLane) + '_' + str(ego_index)
-            if departLane == 0 or departLane == 1: # 根据ego生成的位置赋予target_dir_init
-                target_dir_init = random.randint(0, 1)
-            else:
-                target_dir_init = random.randint(1, 2)
-        else:
-            ego_index_str = str(np.random.randint(0,5)) + '_' + str(ego_index) # ego的id为'1_$index$', 如index为20,id='1_20'
-            target_dir_init = random.randint(0, 2) # ego的变道方向，从0 1 2中取
+        ego_index_str = str(np.random.randint(0,5)) + '_' + str(ego_index) # ego的id为'1_$index$', 如index为20,id='1_20'
+        
+        if CL_Stage == 1:
+            target_dir_init = 1 # 3条target lanes， target_dir为直行
+        elif CL_Stage == 2:
+            target_dir_init = 2 # 2条target lanes， target_dir为左转
+        elif CL_Stage == 3:
+            target_dir_init = 0 # 1条target lanes， target_dir为右转
+        elif CL_Stage in [4, 5, 6]:
+            target_dir_init = random.randint(0, 2) # 随机target_dir
             
         control_vehicle = '' # ego车辆的id
         ego_show = False # ego车辆是否出现过
@@ -623,10 +629,6 @@ def main_train():
         while traci.simulation.getMinExpectedNumber() > 0:
             # 1. 得到道路上所有的车辆ID
             vehicle_list = traci.vehicle.getIDList()
-            if CL_Stage == 1:
-                for v in vehicle_list:
-                    if traci.vehicle.getTypeID(v) == 'CarA':
-                        traci.vehicle.setLaneChangeMode(v, 0b000000000000) # 2车道的车不能变道，其他车道的车可以变道
             
             # 2. 找到我们控制的自动驾驶车辆
             # 2.1 如果此时自动驾驶车辆已出现，设置其为绿色, id为'1_$ego_index$'
@@ -689,9 +691,15 @@ def main_train():
             elif CL_Stage == 3:
                 CL_Stage = 4
                 switch_cnt = 0
-            # elif CL_Stage == 4:
-            #     CL_Stage = 1
-            #     switch_cnt = 0
+            elif CL_Stage == 4:
+                CL_Stage = 5
+                switch_cnt = 0
+            elif CL_Stage == 5:
+                CL_Stage = 6
+                switch_cnt = 0
+            elif CL_Stage == 6:
+                CL_Stage = 1
+                swicth_cnt = 0
 
         losses_episode.clear()
         
