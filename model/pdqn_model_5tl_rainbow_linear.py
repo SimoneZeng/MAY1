@@ -234,7 +234,7 @@ class PDQNAgent(nn.Module):
             acc3 = True, # action_acc = 3 * action_parameters
             NormalNoise = False, # 高斯噪声
             Kaiming_normal = False, # 网络参数初始化,
-            n_step = 1, # n-step learning
+            n_step = 3, # n-step learning
             device = torch.device(
                 "cuda" if torch.cuda.is_available() else "cpu")
     ):

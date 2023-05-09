@@ -34,20 +34,20 @@ import math
 import pprint as pp
 import multiprocessing as mp
 from multiprocessing import Process, Queue, Pipe, connection, Lock
-# curPath=os.path.abspath(os.path.dirname(__file__))
-# rootPath=os.path.split(os.path.split(curPath)[0])[0]
-# sys.path.append(rootPath+'/sumo_test01')
+curPath=os.path.abspath(os.path.dirname(__file__))
+rootPath=os.path.split(os.path.split(curPath)[0])[0]
+sys.path.append(rootPath+'/sumo_test01')
 
-#from model.pdqn_model_5tl_lstm import PDQNAgent
-from model.pdqn_model_5tl_rainbow_linear import PDQNAgent
+from model.pdqn_model_5tl_lstm_1 import PDQNAgent
+#from model.pdqn_model_5tl_rainbow_linear import PDQNAgent
 
 
 # 引入地址 
 sumo_path = os.environ['SUMO_HOME'] # "D:\\sumo\\sumo1.13.0"
 # sumo_dir = "C:\--codeplace--\sumo_inter\sumo_test01\sumo\\" # 1.在本地用这个cfg_path
-sumo_dir = "D:\Git\MAY1\sumo\\" # 1.在本地用这个cfg_path
-# sumo_dir = "/data1/zengximu/sumo_test01/sumo/" # 2. 在服务器上用这个cfg_path
-OUT_DIR="result_pdqn_5l_cl1_rainbow_linear_mp"
+#sumo_dir = "D:\Git\MAY1\sumo\\" # 1.在本地用这个cfg_path
+sumo_dir = "/data1/zengximu/sumo_test01/sumo/" # 2. 在服务器上用这个cfg_path
+OUT_DIR="result_pdqn_5l_lstm_1_mp"
 sys.path.append(sumo_path)
 sys.path.append(sumo_path + "/tools")
 sys.path.append(sumo_path + "/tools/xml")
@@ -73,7 +73,7 @@ torch.manual_seed(5)
 # PRE_LANE = None
 RL_CONTROL = 1100 # Rl agent take control after 1100 meters
 UPDATE_FREQ = 100 # model update frequency for multiprocess
-DEVICE = torch.device("cuda:0")
+DEVICE = torch.device("cuda:3")
 # DEVICE = torch.device("cpu")
 
 def get_all(control_vehicle, select_dis):
@@ -541,7 +541,7 @@ def main_train():
         "memory_size": 40000,
         "minimal_size": 5000,
         "batch_size": 128,
-        "n_step": 3,
+        "n_step": 1,
         "device": DEVICE
     }
 
@@ -556,7 +556,7 @@ def main_train():
         n_step=agent_param["n_step"],
         device=agent_param["device"])
     process=list()
-    traj_q=Queue(maxsize=40000)
+    traj_q=Queue(maxsize=128)
     agent_q=Queue(maxsize=1)
     lock=Lock()
     process.append(mp.Process(target=learner_process, args=(lock, traj_q, agent_q, deepcopy(agent_param))))
@@ -576,8 +576,8 @@ def main_train():
         globals()['OUT_DIR']=f"./{OUT_DIR}/test"
     else:
         episode_num = 20000 # train的episode上限
-        CL_Stage = 1 # train从stage 1 开始
-        # CL_Stage = 4
+        #CL_Stage = 1 # train从stage 1 开始
+        CL_Stage = 4
         if os.path.exists(f"./model_params/{OUT_DIR}_net_params.pth"): #load pre-trained model params for further training
             worker.load_state_dict(torch.load(f"./model_params/{OUT_DIR}_net_params.pth", map_location=DEVICE)) 
     
@@ -679,19 +679,19 @@ def main_train():
         # globals()['PRE_LANE']=None
         traci.close(wait=True)
         switch_cnt += 1
-        if TRAIN and not truncated and switch_cnt >= swicth_min and np.average(losses_episode)<=0.05:
-            if CL_Stage == 1:
-                CL_Stage = 2
-                switch_cnt = 0 # 进入下一个stage，switch_cnt清0
-            elif CL_Stage == 2:
-                CL_Stage = 3
-                switch_cnt = 0
-            elif CL_Stage == 3:
-                CL_Stage = 4
-                switch_cnt = 0
-            # elif CL_Stage == 4:
-            #     CL_Stage = 1
-            #     switch_cnt = 0
+        # if TRAIN and not truncated and switch_cnt >= swicth_min and np.average(losses_episode)<=0.05:
+        #     if CL_Stage == 1:
+        #         CL_Stage = 2
+        #         switch_cnt = 0 # 进入下一个stage，switch_cnt清0
+        #     elif CL_Stage == 2:
+        #         CL_Stage = 3
+        #         switch_cnt = 0
+        #     elif CL_Stage == 3:
+        #         CL_Stage = 4
+        #         switch_cnt = 0
+        #     elif CL_Stage == 4:
+        #         CL_Stage = 1
+        #         switch_cnt = 0
 
         losses_episode.clear()
         

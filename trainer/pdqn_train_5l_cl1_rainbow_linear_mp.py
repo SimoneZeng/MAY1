@@ -34,9 +34,9 @@ import math
 import pprint as pp
 import multiprocessing as mp
 from multiprocessing import Process, Queue, Pipe, connection, Lock
-# curPath=os.path.abspath(os.path.dirname(__file__))
-# rootPath=os.path.split(os.path.split(curPath)[0])[0]
-# sys.path.append(rootPath+'/sumo_test01')
+curPath=os.path.abspath(os.path.dirname(__file__))
+rootPath=os.path.split(os.path.split(curPath)[0])[0]
+sys.path.append(rootPath+'/sumo_test01')
 
 #from model.pdqn_model_5tl_lstm import PDQNAgent
 from model.pdqn_model_5tl_rainbow_linear import PDQNAgent
@@ -45,8 +45,8 @@ from model.pdqn_model_5tl_rainbow_linear import PDQNAgent
 # 引入地址 
 sumo_path = os.environ['SUMO_HOME'] # "D:\\sumo\\sumo1.13.0"
 # sumo_dir = "C:\--codeplace--\sumo_inter\sumo_test01\sumo\\" # 1.在本地用这个cfg_path
-sumo_dir = "D:\Git\MAY1\sumo\\" # 1.在本地用这个cfg_path
-# sumo_dir = "/data1/zengximu/sumo_test01/sumo/" # 2. 在服务器上用这个cfg_path
+#sumo_dir = "D:\Git\MAY1\sumo\\" # 1.在本地用这个cfg_path
+sumo_dir = "/data1/zengximu/sumo_test01/sumo/" # 2. 在服务器上用这个cfg_path
 OUT_DIR="result_pdqn_5l_cl1_rainbow_linear_mp"
 sys.path.append(sumo_path)
 sys.path.append(sumo_path + "/tools")
@@ -73,7 +73,7 @@ torch.manual_seed(5)
 # PRE_LANE = None
 RL_CONTROL = 1100 # Rl agent take control after 1100 meters
 UPDATE_FREQ = 100 # model update frequency for multiprocess
-DEVICE = torch.device("cuda:0")
+DEVICE = torch.device("cuda:2")
 # DEVICE = torch.device("cpu")
 
 def get_all(control_vehicle, select_dis):
