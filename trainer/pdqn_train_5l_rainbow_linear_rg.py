@@ -536,6 +536,7 @@ def train(agent, control_vehicle, episode, target_dir, CL_Stage):
                                                     cur_ego_info_dict['speed'], action_lc_int, cur_ego_info_dict['acc'], ret_action_lc_int, ret_change_lane,
                                                     bad_reward, 0, 0, 0, 0, 0, get_all_info, done, 
                                                     all_vehicle, np.zeros((7,3))]], columns = cols))
+        done = 0 # 改成 0 继续跑，否则 revised action中的done 也会是1
     
     # 10. 查询自动驾驶车是否发生碰撞
     collision=0
