@@ -112,9 +112,11 @@ class Network(nn.Module):
     def forward(self, x: torch.Tensor, tl) -> torch.Tensor:
         """Forward method implementation."""
         x = torch.reshape(x, (-1, 21)).float()  # 7*3变为1*21 torch.Size([1, 21])
+        tl_code = torch.reshape(tl, (-1, 7)) # 5 维变为 1*7
         x = self.feature_layer(x)
+        print(x.shape, tl.shape, sep='\t')
         
-        x = torch.cat([x, tl], dim = 1)
+        x = torch.cat((x, tl_code), dim = 1)
         feature = self.tl_feature_layer(x)
         
         value = self.value_layer(feature)
@@ -216,9 +218,10 @@ class DQNAgent(nn.Module):
             # selected_action = self.env.action_space.sample()
             selected_action = np.random.randint(0, self.N_ACTIONS)
         else:
-            state = torch.tensor(state, data=torch.float32, device=self.device)
+            state = torch.tensor(state, dtype=torch.float32, device=self.device)
             tl = torch.tensor(tl, dtype=torch.float32, device=self.device)
             selected_action = self.dqn(state, tl).argmax()
+            selected_action = selected_action.detach().cpu().numpy()
         
         return selected_action
 

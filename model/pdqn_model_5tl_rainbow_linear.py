@@ -203,7 +203,7 @@ class ParamActor(nn.Module):
     def forward(self, state, tl_code):
         x = torch.reshape(state, (-1, 21))
         x = x.float() # 否则报错expected scalar type Float but found Double
-        tl_code = torch.reshape(tl_code, (-1, 7)) # 5 维变为 1*5
+        tl_code = torch.reshape(tl_code, (-1, 7)) # 5 维变为 1*7
         x = torch.cat((x, tl_code), dim=1)
         
         action = self.feature_layer(x)

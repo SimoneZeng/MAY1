@@ -71,7 +71,7 @@ torch.manual_seed(5)
 
 # PRE_LANE = None
 RL_CONTROL = 1100 # Rl agent take control after 1100 meters
-UPDATE_FREQ = 100 # model update frequency for multiprocess
+UPDATE_FREQ = 200 # model update frequency for multiprocess
 DEVICE = torch.device("cuda:3")
 # DEVICE = torch.device("cpu")
 
@@ -338,7 +338,7 @@ def train(worker, lock, traj_q, agent_q, control_vehicle, episode, target_dir, C
         collision=1
         done = 1
         train_step = worker._step
-        print(f"\t ====== worker_step:{worker._step} learner_step:{worker._learn_step} target_dir:{target_dir} ======")
+        print(f"====== worker_episolon:{worker.epsilon} worker_step:{worker._step} learner_step:{worker._learn_step} target_dir:{target_dir} ======")
 
         print('$ transition')
         pp.pprint({'obs': all_vehicle, 'action': action_int, 'act_param': acc_param, 
@@ -356,7 +356,7 @@ def train(worker, lock, traj_q, agent_q, control_vehicle, episode, target_dir, C
         collision=1
         done = 1
         train_step = worker._step
-        print(f"\t ====== worker_step:{worker._step} learner_step:{worker._learn_step} target_dir:{target_dir} ======")
+        print(f"====== worker_episolon:{worker.epsilon} worker_step:{worker._step} learner_step:{worker._learn_step} target_dir:{target_dir} ======")
         print('$ transition')
         pp.pprint({'obs': all_vehicle, 'act_lc': action_int, 'act_param': acc_param, 
                   'rew': inf, 'next_obs': np.zeros((7,3)), 'done': done}, indent = 5)
@@ -400,7 +400,7 @@ def train(worker, lock, traj_q, agent_q, control_vehicle, episode, target_dir, C
     traci.simulationStep()
     train_step = worker._step
     print("\t ################ 执行 ###################")
-    print(f"\t ====== worker_step:{worker._step} learner_step:{worker._learn_step} target_dir:{target_dir} ======")
+    print(f"====== worker_episolon:{worker.epsilon} worker_step:{worker._step} learner_step:{worker._learn_step} target_dir:{target_dir} ======")
     
     # 7. 记录cur数据
     new_all_vehicle, new_rel_up, new_v_dict = get_all(control_vehicle, 200)
@@ -533,8 +533,9 @@ def train(worker, lock, traj_q, agent_q, control_vehicle, episode, target_dir, C
         model_dict=torch.load(f"./{OUT_DIR}/learner.pth", map_location=DEVICE)
         worker.dqn.load_state_dict(model_dict["dqn"])
         worker.dqn_target.load_state_dict(model_dict["dqn_target"])
-        _learn_step, Q_loss = agent_q.get()
+        _learn_step, epsilon, Q_loss = agent_q.get()
         lock.release()
+        worker.epsilon = epsilon
         worker._learn_step=_learn_step
 
         print('$ Q 的 loss ', Q_loss)
@@ -742,7 +743,7 @@ def learner_process(lock:Lock, traj_q: Queue, agent_q: Queue, agent_param:dict):
             #loss_actor, Q_loss=[learner.learn() for _ in range(k)]
             if not agent_q.full() and learner._learn_step % UPDATE_FREQ == 0:    
                 lock.acquire()
-                agent_q.put((deepcopy(learner._learn_step), deepcopy(Q_loss)), block=True, timeout=None)
+                agent_q.put((deepcopy(learner._learn_step), deepcopy(learner.epsilon), deepcopy(Q_loss)), block=True, timeout=None)
                 torch.save({
                     "dqn":learner.dqn.state_dict(),
                     "dqn_target":learner.dqn_target.state_dict()
