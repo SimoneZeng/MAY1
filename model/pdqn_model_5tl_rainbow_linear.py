@@ -398,17 +398,8 @@ class PDQNAgent(nn.Module):
             grad[~index] *= ((~index).float() * (vals - min_p) / rnge)[~index]
 
         return grad
-    
-    # def step(self, obs, act, act_param, rew, next_obs, done):
-    #     self._step += 1
-        
-    #     self.store_transition(obs, act, act_param, rew, next_obs, done)
-    #     if self._step >= self.batch_size:
-    #         self.learn()
-    #         self._learn_step += 1
         
     def store_transition(self, obs, tl, act, act_param, rew, next_obs, next_tl, done):
-        
         obs = np.reshape(obs, (-1, 1)) # 列数为1，行数-1根据列数来确定
         obs = np.squeeze(obs)
         tl = np.reshape(tl, (-1, 1)) # 列数为1，行数-1根据列数来确定
@@ -424,8 +415,6 @@ class PDQNAgent(nn.Module):
        
         self.transition = [obs, tl, act, act_param, rew, next_obs, next_tl, done]
         self.memory.store(*self.transition) # store 没有返回值
-        # if self.n_step > 1:
-        #     self.memory_n.store(*self.transition)
 
     def learn(self):
         self._learn_step += 1        
