@@ -155,7 +155,7 @@ class DQNAgent(nn.Module):
         memory_size: int = 40000,
         minimal_size: int = 5000,
         batch_size: int = 128,
-        epsilon_decay: float = 1 / 2000,
+        epsilon_decay: float = 1 / 200,
         max_epsilon: float = 1.0,
         min_epsilon: float = 0.1,
         lr: float = 0.0001,

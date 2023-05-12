@@ -83,6 +83,12 @@ class QActor(nn.Module):
             self.hidden_state=None
         else:
             self.hidden_state=(H, C)
+
+    def get_hidden(self):
+        if self.hidden_state is None:
+            return np.zeros((1, 1, 128), dtype=np.float32), np.zeros((1, 1, 128), dtype=np.float32)
+        else:
+            return self.hidden_state[0].clone().detach().cpu().numpy(), self.hidden_state[1].clone().detach().cpu().numpy()
        
         
 class ParamActor(nn.Module):
@@ -131,7 +137,13 @@ class ParamActor(nn.Module):
             self.hidden_state=None
         else:
             self.hidden_state=(H, C)
-    
+        
+    def get_hidden(self):
+        if self.hidden_state is None:
+            return np.zeros((1, 1, 128), dtype=np.float32), np.zeros((1, 1, 128), dtype=np.float32)
+        else:
+            return self.hidden_state[0].clone().detach().cpu().numpy(), self.hidden_state[1].clone().detach().cpu().numpy()
+       
 
 class PDQNAgent(nn.Module):
     def __init__(
@@ -377,19 +389,24 @@ class PDQNAgent(nn.Module):
             self.actor( b_prev_ob, b_prev_tl_code, b_prev_action_param)
             self.actor_target(b_prev_ob, b_prev_tl_code, b_prev_action_param)
 
+        actor_H, actor_C = deepcopy(torch.clone(self.actor.hidden_state[0]).detach()), \
+            deepcopy(torch.clone(self.actor.hidden_state[1]).detach())
+        actor_target_H, actor_target_C = deepcopy(torch.clone(self.actor_target.hidden_state[0]).detach()), \
+            deepcopy(torch.clone(self.actor_target.hidden_state[1].detach()))
+        param_H, param_C = deepcopy(torch.clone(self.param.hidden_state[0]).detach()), \
+            deepcopy(torch.clone(self.param.hidden_state[1]).detach())
+        param_target_H, param_target_C = deepcopy(torch.clone(self.param_target.hidden_state[0]).detach()), \
+            deepcopy(torch.clone(self.param_target.hidden_state[1]).detach())
+
         # -----------------------optimize Q actor------------------------
         with torch.no_grad():
-            next_action_parameters = self.param_target.forward(b_next_state, b_next_tl_code) # b_next_state torch.Size([32, 21])
+            next_action_parameters = self.param_target(b_next_state, b_next_tl_code) # b_next_state torch.Size([32, 21])
             next_q_value = self.actor_target(b_next_state, b_next_tl_code, next_action_parameters) # [32, 21] [32, 3]
             q_prime = torch.max(next_q_value, 1, keepdim=True)[0] # q_prime torch.Size([128, 1])
             # Compute the TD error
             gamma = self.gamma ** self.n_step
             target = b_reward + (1 - b_done) * gamma * q_prime # target torch.Size([128, 1])
         
-        # Compute current Q-values using policy network
-        hidden_H, hidden_C = deepcopy(torch.clone(self.actor.hidden_state[0]).detach()), \
-            deepcopy(torch.clone(self.actor.hidden_state[1]).detach())
-        #hidden_state=deepcopy(torch.clone(self.actor.hidden_state))
         q_values = self.actor(b_state, b_tl_code, b_action_param).squeeze(1) # [32, 21] [32, 3]
         y_predicted = q_values.gather(1, b_action.view(-1, 1)) # gather函数可以看作一种索引
         loss_actor = self.loss_func(y_predicted, target) # loss 是torch.Tensor的形式
@@ -406,7 +423,7 @@ class PDQNAgent(nn.Module):
         with torch.no_grad():
             action_params = self.param(b_state, b_tl_code)
         action_params.requires_grad = True
-        self.actor.hidden_state=(hidden_H, hidden_C)
+        self.actor.hidden_state=(actor_H, actor_C)
         Q_val = self.actor(b_state, b_tl_code, action_params)
         Q_loss = torch.mean(torch.sum(Q_val, 1)) # 这里不知道为什么？？
         self.actor.zero_grad()
@@ -414,6 +431,7 @@ class PDQNAgent(nn.Module):
         
         # ==============================
         delta_a = deepcopy(action_params.grad.data)
+        self.param.hidden_state=(param_H, param_C)
         action_params = self.param(b_state, b_tl_code)
         delta_a[:] = self._invert_gradients(delta_a, action_params, grad_type="action_parameters", inplace=True)
         # if self.zero_index_gradients:

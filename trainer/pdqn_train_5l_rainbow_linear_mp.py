@@ -73,7 +73,7 @@ torch.manual_seed(5)
 # PRE_LANE = None
 RL_CONTROL = 1100 # Rl agent take control after 1100 meters
 UPDATE_FREQ = 100 # model update frequency for multiprocess
-DEVICE = torch.device("cuda:2")
+DEVICE = torch.device("cuda:3")
 # DEVICE = torch.device("cpu")
 
 def get_all(control_vehicle, select_dis):
