@@ -39,6 +39,7 @@ sys.path.append(rootPath+'/sumo_test01')
 #from model.pdqn_model_5tl_lstm import PDQNAgent
 from model.pdqn_model_5tl_rainbow_linear import PDQNAgent as RainbowPDQNAgent
 from model.pdqn_model_5tl_linear import PDQNAgent as LinearPDQNAgent
+from model.pdqn_model_5tl_lstm import PDQNAgent as LstmPDQNAgent
 
 
 # 引入地址 
@@ -46,7 +47,7 @@ sumo_path = os.environ['SUMO_HOME'] # "D:\\sumo\\sumo1.13.0"
 # sumo_dir = "C:\--codeplace--\sumo_inter\sumo_test01\sumo\\" # 1.在本地用这个cfg_path
 # sumo_dir = "D:\Git\MAY1\sumo\\" # 1.在本地用这个cfg_path
 sumo_dir = "/data1/zengximu/sumo_test01/sumo/" # 2. 在服务器上用这个cfg_path
-OUT_DIRs=["result_pdqn_5l_cl1_rainbow_linear_mp","result_pdqn_5l_cl2_rainbow_linear_mp"]
+OUT_DIRs=["../0512/result_pdqn_5l_ccl1_rainbow_linear_mp", "../0512/result_pdqn_5l_ccl2_rainbow_linear_mp"]
 OUT_DIR=""
 sys.path.append(sumo_path)
 sys.path.append(sumo_path + "/tools")
@@ -558,7 +559,15 @@ def main_train():
                 device=agent_param["device"])
         elif re.search(r"lstm", out_dir):
             # lstm model test
-            pass
+            agent = LstmPDQNAgent(
+                state_dim=agent_param["s_dim"],
+                action_dim=agent_param["a_dim"],
+                acc3=agent_param["acc3"],
+                Kaiming_normal=agent_param["Kaiming_normal"],
+                memory_size=agent_param["memory_size"],
+                minimal_size=agent_param["minimal_size"],
+                batch_size=agent_param["batch_size"],
+                device=agent_param["device"])
 
         losses_actor = [] # 不需要看第一个memory 即前20000步
         losses_episode = [] # 存一个episode的loss，一个episode结束后清除内容
@@ -568,9 +577,9 @@ def main_train():
         # (1) 区分train和test的参数设置，以及output位置
         episode_num = 400 # test的episode上限
         CL_Stage = 4 # test都在最后一个stage进行
-        agent.load_state_dict(torch.load(f"./model_params/{out_dir}_net_params.pth", map_location=DEVICE)) 
+        agent.load_state_dict(torch.load(f"{out_dir}/net_params.pth", map_location=DEVICE)) 
         globals()['RL_CONTROL']=1100
-        globals()['OUT_DIR']=f"./{out_dir}/test" 
+        globals()['OUT_DIR']=f"{out_dir}/test" 
         
         # 创建output文件夹
         if not os.path.exists(OUT_DIR):
@@ -581,12 +590,14 @@ def main_train():
         
         # (2) 分episode进行 train / test
         for epo in range(episode_num): 
+            if re.search(r"lstm", out_dir):
+                agent.init_hidden()
             truncated = False # 撞车
             target_dir_init = None # 初始的target_dir，目标转向方向
             
             # (3) 根据不同的CL_Stage启动对应的sumoCmd
             # stage 1 在5车道中模拟2车道，之后的stage都是5车道
-            cfg_path = f"{sumo_dir}cfg_CL1_s{CL_Stage}.sumocfg"
+            cfg_path = f"{sumo_dir}cfg_CL2_high.sumocfg"
             sumoCmd = [sumoBinary, "-c", cfg_path, "--log", f"{OUT_DIR}/logfile_{CL_Stage}.txt"]
             traci.start(sumoCmd)
             ego_index = 5 + epo % 20   # 选取随机车道第index辆出发的车为我们的自动驾驶车

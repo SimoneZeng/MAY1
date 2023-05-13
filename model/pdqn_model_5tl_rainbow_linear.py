@@ -32,7 +32,7 @@ from torch import nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 from copy import deepcopy
-from model.replay_buffer import NSTEPReplayBuffer, ReplayBuffer
+from model.replay_buffer import NSTEPReplayBuffer, ReplayBuffer, PrioritizedReplayBuffer
 
 
 class NoisyLinear(nn.Module):
@@ -235,6 +235,11 @@ class PDQNAgent(nn.Module):
             NormalNoise = False, # 高斯噪声
             Kaiming_normal = False, # 网络参数初始化,
             n_step = 3, # n-step learning
+            # PER parameters
+            alpha: float = 0.6, #determines how much prioritization is used
+            beta: float = 0.4,  #determines how much importance sampling is used
+            prior_eps: float = 1e-3,    #guarantees every transition can be sampled
+            per_flag: bool = False,
             device = torch.device(
                 "cuda" if torch.cuda.is_available() else "cpu")
     ):
@@ -276,7 +281,16 @@ class PDQNAgent(nn.Module):
         self.action_param_min = torch.from_numpy(self.action_param_min_numpy).float().to(self.device)
         self.action_param_offsets = self.action_param_sizes.cumsum() # 不知道干嘛的
         self.action_param_offsets = np.insert(self.action_param_offsets, 0, 0)
-        self.memory = NSTEPReplayBuffer(self.state_dim, self.action_param_size, self.tl_dim, self.memory_size, self.batch_size, self.n_step, self.gamma)
+
+        # PER
+        self.beta = beta
+        self.beta_increment_per_sampling = 0.001
+        self.prior_eps = prior_eps
+        self.per_flag = per_flag
+        if self.per_flag:
+            self.memory = PrioritizedReplayBuffer(self.state_dim, self.action_param_size, self.tl_dim, self.memory_size, self.batch_size, alpha, self.n_step, self.gamma)
+        else:
+            self.memory = NSTEPReplayBuffer(self.state_dim, self.action_param_size, self.tl_dim, self.memory_size, self.batch_size, self.n_step, self.gamma)
         # if self.n_step >1:
         #     self.memory_n = NSTEPReplayBuffer(self.state_dim, self.action_param_size, self.tl_dim, self.memory_size, self.batch_size, self.n_step, self.gamma)
 
@@ -289,7 +303,10 @@ class PDQNAgent(nn.Module):
         self.param_target.load_state_dict(self.param.state_dict())
         self.param_target.eval()
         
-        self.loss_func = F.smooth_l1_loss
+        if self.per_flag:
+            self.loss_func = nn.SmoothL1Loss(reduction='none')
+        else:
+            self.loss_func = nn.SmoothL1Loss()
         self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=self.lr_actor)
         self.param_optimizer = torch.optim.Adam(self.param.parameters(), lr=self.lr_param)
 
@@ -417,8 +434,14 @@ class PDQNAgent(nn.Module):
         self.memory.store(*self.transition) # store 没有返回值
 
     def learn(self):
-        self._learn_step += 1        
-        samples = self.memory.sample_batch()
+        self._learn_step += 1
+        if self.per_flag:        
+            samples = self.memory.sample_batch(self.beta)
+            # PER needs beta to calculate weights
+            weights = torch.FloatTensor(samples["weights"].reshape(-1,1)).to(self.device)
+            indices = samples["indices"]
+        else:
+            samples = self.memory.sample_batch()
         
         # compute loss
         device = self.device  # for shortening the following lines
@@ -443,7 +466,11 @@ class PDQNAgent(nn.Module):
         # Compute current Q-values using policy network
         q_values = self.actor(b_state, b_tl_code, b_action_param) # [32, 21] [32, 3]
         y_predicted = q_values.gather(1, b_action.view(-1, 1)) # gather函数可以看作一种索引
-        loss_actor = self.loss_func(y_predicted, target) # loss 是torch.Tensor的形式
+        if self.per_flag:
+            elementwise_loss = self.loss_func(y_predicted, target) 
+            loss_actor = torch.mean(elementwise_loss * weights)
+        else:
+            loss_actor = self.loss_func(y_predicted, y_predicted)   # loss 是torch.Tensor的形式
         ret_loss_actor = loss_actor.detach().cpu().numpy()
 
         self.actor_optimizer.zero_grad()
@@ -483,6 +510,13 @@ class PDQNAgent(nn.Module):
         #NoiseNet: reset noise
         self.actor.reset_noise()
         self.actor_target.reset_noise()
+
+        #PER: update priorities
+        if self.per_flag:
+            loss_for_prior = elementwise_loss.detach().cpu().numpy()
+            new_priorities = loss_for_prior + self.prior_eps
+            self.memory.update_priorities(indices, new_priorities)
+            self.beta = np.min([0.99, self.beta + self.beta_increment_per_sampling])  # max = 0.9
         
         return ret_loss_actor, Q_loss.detach().cpu().numpy()
 

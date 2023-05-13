@@ -542,6 +542,7 @@ def main_train():
         "minimal_size": 5000,
         "batch_size": 128,
         "n_step": 3,
+        "per_flag": True,
         "device": DEVICE
     }
 
@@ -554,6 +555,7 @@ def main_train():
         minimal_size=agent_param["minimal_size"],
         batch_size=agent_param["batch_size"],
         n_step=agent_param["n_step"],
+        per_flag=agent_param["per_flag"],
         device=agent_param["device"])
     process=list()
     traj_q=Queue(maxsize=40000)
@@ -576,8 +578,8 @@ def main_train():
         globals()['OUT_DIR']=f"./{OUT_DIR}/test"
     else:
         episode_num = 20000 # train的episode上限
-        CL_Stage = 1 # train从stage 1 开始
-        # CL_Stage = 4
+        #CL_Stage = 1 # train从stage 1 开始
+        CL_Stage = 4
         if os.path.exists(f"./model_params/{OUT_DIR}_net_params.pth"): #load pre-trained model params for further training
             worker.load_state_dict(torch.load(f"./model_params/{OUT_DIR}_net_params.pth", map_location=DEVICE)) 
     
@@ -713,6 +715,7 @@ def learner_process(lock:Lock, traj_q: Queue, agent_q: Queue, agent_param:dict):
         minimal_size=agent_param["minimal_size"],
         batch_size=agent_param["batch_size"],
         n_step=agent_param["n_step"],
+        per_flag=agent_param["per_flag"],
         device=agent_param["device"])
     if TRAIN and os.path.exists(f"./model_params/{OUT_DIR}_net_params.pth"):
         learner.load_state_dict(torch.load(f"./model_params/{OUT_DIR}_net_params.pth", map_location=DEVICE))

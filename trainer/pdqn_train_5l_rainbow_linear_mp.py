@@ -542,6 +542,7 @@ def main_train():
         "minimal_size": 5000,
         "batch_size": 128,
         "n_step": 3,
+        "per_flag": True,
         "device": DEVICE
     }
 
@@ -554,6 +555,7 @@ def main_train():
         minimal_size=agent_param["minimal_size"],
         batch_size=agent_param["batch_size"],
         n_step=agent_param["n_step"],
+        per_flag=agent_param["per_flag"],
         device=agent_param["device"])
     process=list()
     traj_q=Queue(maxsize=40000)
@@ -595,7 +597,7 @@ def main_train():
         
         # (3) 根据不同的CL_Stage启动对应的sumoCmd
         # stage 1 在5车道中模拟2车道，之后的stage都是5车道
-        cfg_path = f"{sumo_dir}cfg_CL1_s{CL_Stage}.sumocfg"
+        cfg_path = f"{sumo_dir}cfg_CL2_high.sumocfg"
         sumoCmd = [sumoBinary, "-c", cfg_path, "--log", f"{OUT_DIR}/logfile_{CL_Stage}.txt"]
         traci.start(sumoCmd)
         ego_index = 5 + epo % 20   # 选取随机车道第index辆出发的车为我们的自动驾驶车
