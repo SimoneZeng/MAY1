@@ -33,7 +33,7 @@ from torch import nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 from copy import deepcopy
-from model.replay_buffer import RecurrentReplayBuffer
+from model.replay_buffer import RecurrentReplayBuffer, RecurrentPrioritizedReplayBuffer
 
 
 class QActor(nn.Module):
@@ -74,13 +74,14 @@ class QActor(nn.Module):
         
         feature = self.feature_layer(x)
         y, self.hidden_state = self.lstm_layer(F.relu(feature), self.hidden_state)
-        q = self.output(y)
+        q = self.output(y).squeeze(1)
         
         return q
     
-    def init_hidden(self, H=None, C=None):
+    def init_hidden(self, batch_size, H=None, C=None):
         if H is None or C is None:
-            self.hidden_state=None
+            self.hidden_state=(torch.zeros((1, batch_size, 128), device=next(self.lstm_layer.parameters()).device),
+                torch.zeros((1, batch_size, 128), device=next(self.lstm_layer.parameters()).device))
         else:
             self.hidden_state=(H, C)
 
@@ -132,9 +133,10 @@ class ParamActor(nn.Module):
         
         return action
     
-    def init_hidden(self, H=None, C=None):
+    def init_hidden(self, batch_size, H=None, C=None):
         if H is None or C is None:
-            self.hidden_state=None
+            self.hidden_state=(torch.zeros((1, batch_size, 128), device=next(self.lstm_layer.parameters()).device),
+                torch.zeros((1, batch_size, 128), device=next(self.lstm_layer.parameters()).device))
         else:
             self.hidden_state=(H, C)
         
@@ -165,6 +167,11 @@ class PDQNAgent(nn.Module):
             Kaiming_normal = False, # 网络参数初始化,
             n_step = 1, # n_step learning
             burn_in_step = 20, # burn in step for R2D2
+             # PER parameters
+            alpha: float = 0.6, #determines how much prioritization is used
+            beta: float = 0.4,  #determines how much importance sampling is used
+            prior_eps: float = 1e-3,    #guarantees every transition can be sampled
+            per_flag: bool = False,
             device = torch.device(
                 "cuda" if torch.cuda.is_available() else "cpu")
     ):
@@ -207,7 +214,18 @@ class PDQNAgent(nn.Module):
         self.action_param_min = torch.from_numpy(self.action_param_min_numpy).float().to(self.device)
         self.action_param_offsets = self.action_param_sizes.cumsum() # 不知道干嘛的
         self.action_param_offsets = np.insert(self.action_param_offsets, 0, 0)
-        self.memory = RecurrentReplayBuffer(self.state_dim, self.action_param_size, self.tl_dim, self.memory_size, self.batch_size, self.n_step, self.burn_in_step, self.gamma)
+
+        # PER
+        self.beta = beta
+        self.beta_increment_per_sampling = 0.001
+        self.prior_eps = prior_eps
+        self.per_flag = per_flag
+        if self.per_flag:
+            self.memory = RecurrentPrioritizedReplayBuffer(self.state_dim, self.action_param_size, self.tl_dim, self.memory_size, self.batch_size, alpha, self.n_step, self.burn_in_step, self.gamma)
+        else:
+            self.memory = RecurrentReplayBuffer(self.state_dim, self.action_param_size, self.tl_dim, self.memory_size, self.batch_size, self.n_step, self.burn_in_step, self.gamma)
+        # if self.n_step >1:
+        #     self.memory_n = NSTEPReplayBuffer(self.state_dim, self.action_param_size, self.tl_dim, self.memory_size, self.batch_size, self.n_step, self.gamma)
 
         self.actor = QActor(self.state_dim, self.tl_dim, self.num_action, self.action_param_size, self.Kaiming_normal).to(self.device)
         self.actor_target = QActor(self.state_dim, self.tl_dim, self.num_action, self.action_param_size, self.Kaiming_normal).to(self.device)
@@ -218,7 +236,10 @@ class PDQNAgent(nn.Module):
         self.param_target.load_state_dict(self.param.state_dict())
         self.param_target.eval()
         
-        self.loss_func = F.smooth_l1_loss
+        if self.per_flag:
+            self.loss_func = nn.SmoothL1Loss(reduction='none')
+        else:
+            self.loss_func = nn.SmoothL1Loss()
         self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=self.lr_actor)
         self.param_optimizer = torch.optim.Adam(self.param.parameters(), lr=self.lr_param)
 
@@ -327,14 +348,6 @@ class PDQNAgent(nn.Module):
             grad[~index] *= ((~index).float() * (vals - min_p) / rnge)[~index]
 
         return grad
-    
-    # def step(self, obs, act, act_param, rew, next_obs, done):
-    #     self._step += 1
-        
-    #     self.store_transition(obs, act, act_param, rew, next_obs, done)
-    #     if self._step >= self.batch_size:
-    #         self.learn()
-    #         self._learn_step += 1
         
     def store_transition(self, obs, tl, act, act_param, rew, next_obs, next_tl, done):
         obs = np.reshape(obs, (-1, 1)) # 列数为1，行数-1根据列数来确定
@@ -354,8 +367,14 @@ class PDQNAgent(nn.Module):
         self.memory.store(*self.transition) # store 没有返回值
 
     def learn(self):
-        self._learn_step += 1        
-        samples = self.memory.sample_batch()
+        self._learn_step += 1
+        if self.per_flag:        
+            samples = self.memory.sample_batch(self.beta)
+            # PER needs beta to calculate weights
+            weights = torch.FloatTensor(samples["weights"].reshape(-1,1)).to(self.device)
+            indices = samples["indices"]
+        else:
+            samples = self.memory.sample_batch()
         
         # compute loss
         device = self.device  # for shortening the following lines
@@ -376,8 +395,8 @@ class PDQNAgent(nn.Module):
         #print(samples["obs"].shape, samples["tl_code"].shape, samples["act"].shape, samples["act_param"].shape, sep='\n')
         
         # retrieve 4 previous state in sequence
-        self.init_hidden()
-        for i in range(self.burn_in_step-1):
+        self.init_hidden(self.batch_size)
+        for i in range(self.burn_in_step):
             b_prev_ob = b_prev_obs[i, :, :]
             b_prev_tl_code = b_prev_tl_codes[i, :, :]
             b_prev_action = b_prev_actions[i, :, :].reshape(-1, 1)
@@ -407,9 +426,13 @@ class PDQNAgent(nn.Module):
             gamma = self.gamma ** self.n_step
             target = b_reward + (1 - b_done) * gamma * q_prime # target torch.Size([128, 1])
         
-        q_values = self.actor(b_state, b_tl_code, b_action_param).squeeze(1) # [32, 21] [32, 3]
+        q_values = self.actor(b_state, b_tl_code, b_action_param) # [32, 21] [32, 3]
         y_predicted = q_values.gather(1, b_action.view(-1, 1)) # gather函数可以看作一种索引
-        loss_actor = self.loss_func(y_predicted, target) # loss 是torch.Tensor的形式
+        if self.per_flag:
+            elementwise_loss = self.loss_func(y_predicted, target) 
+            loss_actor = torch.mean(elementwise_loss * weights)
+        else:
+            loss_actor = self.loss_func(y_predicted, y_predicted)   # loss 是torch.Tensor的形式
         ret_loss_actor = loss_actor.detach().cpu().numpy()
 
         self.actor_optimizer.zero_grad()
@@ -448,14 +471,21 @@ class PDQNAgent(nn.Module):
         self.soft_update_target_network(self.actor, self.actor_target, self.tau_actor)
         self.soft_update_target_network(self.param, self.param_target, self.tau_param)
         
+        #PER: update priorities
+        if self.per_flag:
+            loss_for_prior = elementwise_loss.detach().cpu().numpy()
+            new_priorities = loss_for_prior + self.prior_eps
+            self.memory.update_priorities(indices, new_priorities)
+            self.beta = np.min([0.99, self.beta + self.beta_increment_per_sampling])  # max = 0.9
+        
         return ret_loss_actor, Q_loss.detach().cpu().numpy()
 
     def soft_update_target_network(self, net, target_net, tau):
         for param_target, param in zip(target_net.parameters(), net.parameters()):
             param_target.data.copy_(param_target.data * (1.0 - tau) + param.data * tau)
 
-    def init_hidden(self):
-        self.actor.init_hidden()
-        self.actor_target.init_hidden()
-        self.param.init_hidden()
-        self.param_target.init_hidden()
+    def init_hidden(self, batch_size=1):
+        self.actor.init_hidden(batch_size)
+        self.actor_target.init_hidden(batch_size)
+        self.param.init_hidden(batch_size)
+        self.param_target.init_hidden(batch_size)

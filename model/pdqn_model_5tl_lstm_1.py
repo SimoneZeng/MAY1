@@ -74,7 +74,7 @@ class QActor(nn.Module):
         
         feature = self.feature_layer(x)
         y, self.hidden_state = self.lstm_layer(F.relu(feature))
-        q = self.output(y)
+        q = self.output(y).squeeze(1)
         
         return q
     
@@ -320,14 +320,6 @@ class PDQNAgent(nn.Module):
             grad[~index] *= ((~index).float() * (vals - min_p) / rnge)[~index]
 
         return grad
-    
-    # def step(self, obs, act, act_param, rew, next_obs, done):
-    #     self._step += 1
-        
-    #     self.store_transition(obs, act, act_param, rew, next_obs, done)
-    #     if self._step >= self.batch_size:
-    #         self.learn()
-    #         self._learn_step += 1
         
     def store_transition(self, obs, tl, act, act_param, rew, next_obs, next_tl, done):
         obs = np.reshape(obs, (-1, 1)) # 列数为1，行数-1根据列数来确定
@@ -385,7 +377,7 @@ class PDQNAgent(nn.Module):
 
         # -----------------------optimize Q actor------------------------
         with torch.no_grad():
-            next_action_parameters = self.param_target.forward(b_next_state, b_next_tl_code) # b_next_state torch.Size([32, 21])
+            next_action_parameters = self.param_target(b_next_state, b_next_tl_code) # b_next_state torch.Size([32, 21])
             next_q_value = self.actor_target(b_next_state, b_next_tl_code, next_action_parameters) # [32, 21] [32, 3]
             q_prime = torch.max(next_q_value, 1, keepdim=True)[0] # q_prime torch.Size([128, 1])
             # Compute the TD error
@@ -396,7 +388,7 @@ class PDQNAgent(nn.Module):
         hidden_H, hidden_C = deepcopy(torch.clone(self.actor.hidden_state[0]).detach()), \
             deepcopy(torch.clone(self.actor.hidden_state[1]).detach())
         #hidden_state=deepcopy(torch.clone(self.actor.hidden_state))
-        q_values = self.actor(b_state, b_tl_code, b_action_param).squeeze(1) # [32, 21] [32, 3]
+        q_values = self.actor(b_state, b_tl_code, b_action_param) # [32, 21] [32, 3]
         y_predicted = q_values.gather(1, b_action.view(-1, 1)) # gather函数可以看作一种索引
         loss_actor = self.loss_func(y_predicted, target) # loss 是torch.Tensor的形式
         ret_loss_actor = loss_actor.detach().cpu().numpy()

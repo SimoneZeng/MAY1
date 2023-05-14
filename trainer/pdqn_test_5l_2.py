@@ -47,7 +47,7 @@ sumo_path = os.environ['SUMO_HOME'] # "D:\\sumo\\sumo1.13.0"
 # sumo_dir = "C:\--codeplace--\sumo_inter\sumo_test01\sumo\\" # 1.在本地用这个cfg_path
 # sumo_dir = "D:\Git\MAY1\sumo\\" # 1.在本地用这个cfg_path
 sumo_dir = "/data1/zengximu/sumo_test01/sumo/" # 2. 在服务器上用这个cfg_path
-OUT_DIRs=["../0512/result_pdqn_5l_cl1_rainbow_linear_mp", "../0512/result_pdqn_5l_cl2_rainbow_linear_mp"]
+OUT_DIRs=["../0514/result_pdqn_5l_cl1_rainbow_linear_mp", "../0514/result_pdqn_5l_cl2_rainbow_linear_mp"]
 OUT_DIR=""
 sys.path.append(sumo_path)
 sys.path.append(sumo_path + "/tools")

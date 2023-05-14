@@ -191,14 +191,15 @@ class RecurrentReplayBuffer:
         self.done_buf = np.zeros(size, dtype=np.float32)
         self.max_size, self.batch_size = size, batch_size
         self.ptr, self.size, = 0, 0 # self.ptr points the position to add a new line, self.size is the length of loaded lines
+        self.obs_dim, self.param_dim, self.tl_dim = obs_dim, param_dim, tl_dim
 
         #previous steps info for burn-in RNN
         self.burn_in_buffer=deque(maxlen=burn_in_step)
         self.burn_in_step=burn_in_step
-        self.prev_obs=np.zeros([size, burn_in_step-1, obs_dim], dtype=np.float32)
-        self.prev_tl_code=np.zeros([size, burn_in_step-1, tl_dim], dtype=np.float32)
-        self.prev_acts=np.zeros([size, burn_in_step-1, 1], dtype=np.float32)
-        self.prev_acts_param=np.zeros([size, burn_in_step-1, param_dim], dtype=np.float32)
+        self.prev_obs=np.zeros([size, burn_in_step, obs_dim], dtype=np.float32)
+        self.prev_tl_code=np.zeros([size, burn_in_step, tl_dim], dtype=np.float32)
+        self.prev_acts=np.zeros([size, burn_in_step, 1], dtype=np.float32)
+        self.prev_acts_param=np.zeros([size, burn_in_step, param_dim], dtype=np.float32)
 
         #for n-step learning
         self.n_step_buffer=deque(maxlen=n_step)
@@ -226,7 +227,7 @@ class RecurrentReplayBuffer:
             return ()
 
         for i, trans in enumerate(self.burn_in_buffer):
-            if i == self.burn_in_step - 1:
+            if i == self.burn_in_step:
                 break
             self.prev_obs[self.ptr, i]=trans[0]
             self.prev_tl_code[self.ptr, i]=trans[1]
@@ -250,6 +251,10 @@ class RecurrentReplayBuffer:
         self.done_buf[self.ptr] = done
         self.ptr = (self.ptr + 1) % self.max_size
         self.size = min(self.size + 1, self.max_size)
+        if done:
+            self.burn_in_buffer.clear()
+
+        return self.n_step_buffer[0]
 
     def sample_batch(self) -> Dict[str, np.ndarray]:
         idxs = np.random.choice(self.size, size=self.batch_size, replace=False) # get a batch from loaded lines
@@ -258,7 +263,7 @@ class RecurrentReplayBuffer:
                     tl_code=self.tl_buf[idxs],
                     next_tl_code=self.next_tl_buf[idxs],
                     act=self.acts_buf[idxs],
-                    act_param = self.acts_param_buf[idxs],
+                    act_param=self.acts_param_buf[idxs],
                     rew=self.rews_buf[idxs],
                     done=self.done_buf[idxs],
                     prev_obs=self.prev_obs[idxs],
@@ -284,6 +289,29 @@ class RecurrentReplayBuffer:
     def __len__(self) -> int:
         return self.size
     
+    def reset(self, burn_in_step):
+        self.n_step_buffer.clear()
+        self.obs_buf = np.zeros([self.max_size, self.obs_dim], dtype=np.float32)
+        self.next_obs_buf = np.zeros([self.max_size, self.obs_dim], dtype=np.float32)
+        self.tl_buf = np.zeros([self.max_size, self.tl_dim], dtype=np.float32)
+        self.next_tl_buf = np.zeros([self.max_size, self.tl_dim], dtype=np.float32)
+        self.acts_buf = np.zeros([self.max_size], dtype=np.float32)
+        self.acts_param_buf = np.zeros([self.max_size, self.param_dim], dtype=np.float32)
+        self.rews_buf = np.zeros([self.max_size], dtype=np.float32)
+        self.done_buf = np.zeros(self.max_size, dtype=np.float32)
+        self.ptr, self.size, = 0, 0 # self.ptr points the position to add a new line, self.size is the length of loaded lines
+
+        #previous steps info for burn-in RNN
+        self.burn_in_buffer=deque(maxlen=burn_in_step)
+        self.burn_in_step=burn_in_step
+        self.prev_obs=np.zeros([self.max_size, burn_in_step, self.obs_dim], dtype=np.float32)
+        self.prev_tl_code=np.zeros([self.max_size, burn_in_step, self.tl_dim], dtype=np.float32)
+        self.prev_acts=np.zeros([self.max_size, burn_in_step, 1], dtype=np.float32)
+        self.prev_acts_param=np.zeros([self.max_size, burn_in_step, self.param_dim], dtype=np.float32)
+        self.prev_obs=np.zeros_like(self.prev_obs)
+        self.prev_tl_code=np.zeros_like(self.prev_tl_code)
+        self.prev_acts=np.zeros_like(self.prev_acts)
+        self.prev_acts_param=np.zeros_like(self.prev_acts_param)
 
 class SegmentTree:
     """ Create SegmentTree.
@@ -525,6 +553,158 @@ class PrioritizedReplayBuffer(NSTEPReplayBuffer):
             self.min_tree[idx] = priority ** self.alpha
 
             self.max_priority = max(self.max_priority, priority)
+            
+    def _sample_proportional(self) -> List[int]:
+        """Sample indices based on proportions."""
+        indices = []
+        p_total = self.sum_tree.sum(0, len(self) - 1)
+        segment = p_total / self.batch_size
+        
+        for i in range(self.batch_size):
+            a = segment * i
+            b = segment * (i + 1)
+            upperbound = random.uniform(a, b)
+            idx = self.sum_tree.retrieve(upperbound)
+            indices.append(idx)
+            
+        return indices
+    
+    def _calculate_weight(self, idx: int, beta: float):
+        """Calculate the weight of the experience at idx."""
+        # get max weight
+        p_min = self.min_tree.min() / self.sum_tree.sum()
+        max_weight = (p_min * len(self)) ** (-beta)
+        
+        # calculate weights
+        p_sample = self.sum_tree[idx] / self.sum_tree.sum()
+        weight = (p_sample * len(self)) ** (-beta)
+        weight = weight / max_weight
+        
+        return weight
+    
+class RecurrentPrioritizedReplayBuffer(RecurrentReplayBuffer):
+    """Prioritized Replay buffer.
+    
+    Attributes:
+        max_priority (float): max priority
+        tree_ptr (int): next index of tree
+        alpha (float): alpha parameter for prioritized replay buffer
+        sum_tree (SumSegmentTree): sum tree for prior
+        min_tree (MinSegmentTree): min tree for min prior to get max weight
+        
+    """
+    
+    def __init__(
+        self, 
+        obs_dim: int, 
+        param_dim: int,
+        tl_dim: int,
+        size: int, 
+        batch_size: int = 32, 
+        alpha: float = 0.6,
+        n_step: int = 1, 
+        burn_in_step: int = 20,
+        gamma: float = 0.99,
+    ):
+        """Initialization."""
+        assert alpha >= 0
+        
+        super(RecurrentPrioritizedReplayBuffer, self).__init__(
+            obs_dim, param_dim, tl_dim, size, batch_size, n_step, burn_in_step, gamma
+        )
+        self.max_priority, self.tree_ptr = 1.0, 0
+        self.alpha = alpha
+        
+        # capacity must be positive and a power of 2.
+        tree_capacity = 1
+        while tree_capacity < self.max_size:
+            tree_capacity *= 2
+
+        self.sum_tree = SumSegmentTree(tree_capacity)
+        self.min_tree = MinSegmentTree(tree_capacity)
+        
+    def store(
+        self, 
+        obs: np.ndarray, 
+        tl_code: np.ndarray,
+        act: np.ndarray,
+        act_param: float,
+        rew: float, 
+        next_obs: np.ndarray, 
+        next_tl_code: np.ndarray,
+        done: bool,
+    ) -> Tuple[np.ndarray, np.ndarray, float, np.ndarray, bool]:
+        """Store experience and priority."""
+        transition = super().store(obs, tl_code, act, act_param, rew, next_obs, next_tl_code, done)
+        
+        if transition:
+            self.sum_tree[self.tree_ptr] = self.max_priority ** self.alpha
+            self.min_tree[self.tree_ptr] = self.max_priority ** self.alpha
+            self.tree_ptr = (self.tree_ptr + 1) % self.max_size
+        
+        return transition
+
+    def sample_batch(self, beta: float = 0.4) -> Dict[str, np.ndarray]:
+        """Sample a batch of experiences."""
+        assert len(self) >= self.batch_size
+        assert beta > 0
+        
+        indices = self._sample_proportional()
+        
+        obs = self.obs_buf[indices]
+        next_obs = self.next_obs_buf[indices]
+        tl_codes = self.tl_buf[indices]
+        next_tl_codes = self.next_tl_buf[indices]
+        acts = self.acts_buf[indices]
+        act_params = self.acts_param_buf[indices]
+        rews = self.rews_buf[indices]
+        done = self.done_buf[indices]
+        prev_obs=self.prev_obs[indices],
+        prev_tl_code=self.prev_tl_code[indices],
+        prev_acts=self.prev_acts[indices],
+        prev_acts_param=self.prev_acts_param[indices]
+        weights = np.array([self._calculate_weight(i, beta) for i in indices])
+        
+        return dict(
+            obs=obs,
+            next_obs=next_obs,
+            tl_code=tl_codes,
+            next_tl_code=next_tl_codes,
+            act=acts,
+            act_param=act_params,
+            rew=rews,
+            done=done,
+            prev_obs=prev_obs,
+            prev_tl_code=prev_tl_code,
+            prev_acts=prev_acts,
+            prev_acts_param=prev_acts_param,
+            weights=weights,
+            indices=indices,
+        )
+        
+    def update_priorities(self, indices: List[int], priorities: np.ndarray):
+        """Update priorities of sampled transitions."""
+        assert len(indices) == len(priorities)
+
+        for idx, priority in zip(indices, priorities):
+            assert priority > 0
+            assert 0 <= idx < len(self)
+
+            self.sum_tree[idx] = priority ** self.alpha
+            self.min_tree[idx] = priority ** self.alpha
+
+            self.max_priority = max(self.max_priority, priority)
+
+    def reset(self, burn_in_step):
+        super().reset(burn_in_step)
+
+        # capacity must be positive and a power of 2.
+        tree_capacity = 1
+        while tree_capacity < self.max_size:
+            tree_capacity *= 2
+
+        self.sum_tree = SumSegmentTree(tree_capacity)
+        self.min_tree = MinSegmentTree(tree_capacity)
             
     def _sample_proportional(self) -> List[int]:
         """Sample indices based on proportions."""
