@@ -802,6 +802,18 @@ def main_train():
         # 保存
         df_record.to_csv(f"{OUT_DIR}/df_record_epo_{epo}.csv", index = False)
         if TRAIN:
+            if worker._learn_step == 20000:
+                torch.save(worker.state_dict(), f"./{OUT_DIR}/20000_net_params.pth")
+            elif worker._learn_step == 50000:
+                torch.save(worker.state_dict(), f"./{OUT_DIR}/50000_net_params.pth")
+            elif worker._learn_step == 100000:
+                torch.save(worker.state_dict(), f"./{OUT_DIR}/100000_net_params.pth")
+            elif worker._learn_step == 150000:
+                torch.save(worker.state_dict(), f"./{OUT_DIR}/150000_net_params.pth")
+            elif worker._learn_step == 200000:
+                torch.save(worker.state_dict(), f"./{OUT_DIR}/200000_net_params.pth")
+            elif worker._learn_step == 250000:
+                torch.save(worker.state_dict(), f"./{OUT_DIR}/250000_net_params.pth")
             torch.save(worker.state_dict(), f"./{OUT_DIR}/net_params.pth") 
             pd.DataFrame(data=losses_actor).to_csv(f"./{OUT_DIR}/losses.csv")
 

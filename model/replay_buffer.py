@@ -699,6 +699,7 @@ class RecurrentPrioritizedReplayBuffer(RecurrentReplayBuffer):
         super().reset(burn_in_step)
 
         # capacity must be positive and a power of 2.
+        self.max_priority, self.tree_ptr = 1.0, 0
         tree_capacity = 1
         while tree_capacity < self.max_size:
             tree_capacity *= 2
