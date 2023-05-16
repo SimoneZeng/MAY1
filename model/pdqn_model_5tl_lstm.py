@@ -387,9 +387,10 @@ class PDQNAgent(nn.Module):
         b_reward = torch.FloatTensor(samples["rew"].reshape(-1, 1)).to(device)
         b_done = torch.FloatTensor(samples["done"].reshape(-1, 1)).to(device)
 
-        b_prev_obs = torch.FloatTensor(samples["prev_obs"]).to(device).permute(1, 0, 2)
-        b_prev_tl_codes = torch.FloatTensor(samples["prev_tl_code"]).to(device).permute(1, 0, 2)
-        b_prev_actions = torch.LongTensor(samples["prev_acts"]).to(device).permute(1, 0, 2)
+        # attention: the following 4 line code is tricky, do not change them recklessly
+        b_prev_obs = torch.FloatTensor(samples["prev_obs"][0]).to(device).permute(1, 0, 2)
+        b_prev_tl_codes = torch.FloatTensor(samples["prev_tl_code"][0]).to(device).permute(1, 0, 2)
+        b_prev_actions = torch.LongTensor(samples["prev_acts"][0]).to(device).permute(1, 0, 2)
         b_prev_action_params = torch.FloatTensor(samples["prev_acts_param"]).to(device).permute(1, 0, 2)
         #print(samples["prev_obs"].shape, samples["prev_tl_code"].shape, samples["prev_acts"].shape, samples["prev_acts_param"].shape, sep='\n')
         #print(samples["obs"].shape, samples["tl_code"].shape, samples["act"].shape, samples["act_param"].shape, sep='\n')

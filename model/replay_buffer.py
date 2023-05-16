@@ -194,7 +194,7 @@ class RecurrentReplayBuffer:
         self.obs_dim, self.param_dim, self.tl_dim = obs_dim, param_dim, tl_dim
 
         #previous steps info for burn-in RNN
-        self.burn_in_buffer=deque(maxlen=burn_in_step)
+        self.burn_in_buffer=deque(maxlen=burn_in_step+1)
         self.burn_in_step=burn_in_step
         self.prev_obs=np.zeros([size, burn_in_step, obs_dim], dtype=np.float32)
         self.prev_tl_code=np.zeros([size, burn_in_step, tl_dim], dtype=np.float32)
@@ -223,7 +223,7 @@ class RecurrentReplayBuffer:
         self.burn_in_buffer.append(transition)
 
         #single step transition is not ready
-        if len(self.n_step_buffer)<self.n_step or len(self.burn_in_buffer)<self.burn_in_step:
+        if len(self.n_step_buffer)<self.n_step or len(self.burn_in_buffer)<self.burn_in_buffer.maxlen:
             return ()
 
         for i, trans in enumerate(self.burn_in_buffer):
@@ -266,10 +266,10 @@ class RecurrentReplayBuffer:
                     act_param=self.acts_param_buf[idxs],
                     rew=self.rews_buf[idxs],
                     done=self.done_buf[idxs],
-                    prev_obs=self.prev_obs[idxs],
-                    prev_tl_code=self.prev_tl_code[idxs],
-                    prev_acts=self.prev_acts[idxs],
-                    prev_acts_param=self.prev_acts_param[idxs])
+                    prev_obs=self.prev_obs[idxs, :, :],
+                    prev_tl_code=self.prev_tl_code[idxs, :, :],
+                    prev_acts=self.prev_acts[idxs, :, :],
+                    prev_acts_param=self.prev_acts_param[idxs, :, :])
 
     def _get_n_step_info(
         self, n_step_buffer: Deque, gamma: float
@@ -302,16 +302,12 @@ class RecurrentReplayBuffer:
         self.ptr, self.size, = 0, 0 # self.ptr points the position to add a new line, self.size is the length of loaded lines
 
         #previous steps info for burn-in RNN
-        self.burn_in_buffer=deque(maxlen=burn_in_step)
+        self.burn_in_buffer=deque(maxlen=burn_in_step+1)
         self.burn_in_step=burn_in_step
         self.prev_obs=np.zeros([self.max_size, burn_in_step, self.obs_dim], dtype=np.float32)
         self.prev_tl_code=np.zeros([self.max_size, burn_in_step, self.tl_dim], dtype=np.float32)
         self.prev_acts=np.zeros([self.max_size, burn_in_step, 1], dtype=np.float32)
         self.prev_acts_param=np.zeros([self.max_size, burn_in_step, self.param_dim], dtype=np.float32)
-        self.prev_obs=np.zeros_like(self.prev_obs)
-        self.prev_tl_code=np.zeros_like(self.prev_tl_code)
-        self.prev_acts=np.zeros_like(self.prev_acts)
-        self.prev_acts_param=np.zeros_like(self.prev_acts_param)
 
 class SegmentTree:
     """ Create SegmentTree.
@@ -659,10 +655,10 @@ class RecurrentPrioritizedReplayBuffer(RecurrentReplayBuffer):
         act_params = self.acts_param_buf[indices]
         rews = self.rews_buf[indices]
         done = self.done_buf[indices]
-        prev_obs=self.prev_obs[indices],
-        prev_tl_code=self.prev_tl_code[indices],
-        prev_acts=self.prev_acts[indices],
-        prev_acts_param=self.prev_acts_param[indices]
+        prev_obs=self.prev_obs[indices, :, :],
+        prev_tl_code=self.prev_tl_code[indices, :, :],
+        prev_acts=self.prev_acts[indices, :, :],
+        prev_acts_param=self.prev_acts_param[indices, :, :]
         weights = np.array([self._calculate_weight(i, beta) for i in indices])
         
         return dict(

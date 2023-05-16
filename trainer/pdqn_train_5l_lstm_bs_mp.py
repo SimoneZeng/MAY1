@@ -34,9 +34,9 @@ import math
 import pprint as pp
 import multiprocessing as mp
 from multiprocessing import Process, Queue, Pipe, connection, Lock
-# curPath=os.path.abspath(os.path.dirname(__file__))
-# rootPath=os.path.split(os.path.split(curPath)[0])[0]
-# sys.path.append(rootPath+'/sumo_test01')
+curPath=os.path.abspath(os.path.dirname(__file__))
+rootPath=os.path.split(os.path.split(curPath)[0])[0]
+sys.path.append(rootPath+'/sumo_test01')
 
 from model.pdqn_model_5tl_lstm import PDQNAgent
 #from model.pdqn_model_5tl_rainbow_linear import PDQNAgent
@@ -45,8 +45,8 @@ from model.pdqn_model_5tl_lstm import PDQNAgent
 # 引入地址 
 sumo_path = os.environ['SUMO_HOME'] # "D:\\sumo\\sumo1.13.0"
 # sumo_dir = "C:\--codeplace--\sumo_inter\sumo_test01\sumo\\" # 1.在本地用这个cfg_path
-sumo_dir = "D:\Git\MAY1\sumo\\" # 1.在本地用这个cfg_path
-#sumo_dir = "/data1/zengximu/sumo_test01/sumo/" # 2. 在服务器上用这个cfg_path
+#sumo_dir = "D:\Git\MAY1\sumo\\" # 1.在本地用这个cfg_path
+sumo_dir = "/data1/zengximu/sumo_test01/sumo/" # 2. 在服务器上用这个cfg_path
 OUT_DIR="result_pdqn_5l_lstm_bs_mp"
 sys.path.append(sumo_path)
 sys.path.append(sumo_path + "/tools")
@@ -73,7 +73,7 @@ torch.manual_seed(5)
 # PRE_LANE = None
 RL_CONTROL = 1100 # Rl agent take control after 1100 meters
 UPDATE_FREQ = 100 # model update frequency for multiprocess
-DEVICE = torch.device("cuda:0")
+DEVICE = torch.device("cuda:3")
 # DEVICE = torch.device("cpu")
 
 def get_all(control_vehicle, select_dis):
@@ -539,7 +539,7 @@ def main_train():
         "acc3": True,
         "Kaiming_normal": False,
         "memory_size": 40000,
-        "minimal_size": 128,
+        "minimal_size": 5000,
         "batch_size": 128,
         "n_step": 1,
         "burn_in_step": 0,
@@ -560,7 +560,7 @@ def main_train():
         per_flag=agent_param["per_flag"],
         device=agent_param["device"])
     process=list()
-    traj_q=Queue(maxsize=5)
+    traj_q=Queue(maxsize=5000)
     agent_q=Queue(maxsize=1)
     lock=Lock()
     process.append(mp.Process(target=learner_process, args=(lock, traj_q, agent_q, deepcopy(agent_param))))
@@ -703,18 +703,18 @@ def main_train():
         # 保存
         df_record.to_csv(f"{OUT_DIR}/df_record_epo_{epo}.csv", index = False)
         if TRAIN:
-            if worker._learn_step == 20000:
-                torch.save(worker.state_dict(), f"./{OUT_DIR}/20000_net_params.pth")
-            elif worker._learn_step == 50000:
-                torch.save(worker.state_dict(), f"./{OUT_DIR}/50000_net_params.pth")
-            elif worker._learn_step == 100000:
-                torch.save(worker.state_dict(), f"./{OUT_DIR}/100000_net_params.pth")
-            elif worker._learn_step == 150000:
-                torch.save(worker.state_dict(), f"./{OUT_DIR}/150000_net_params.pth")
-            elif worker._learn_step == 200000:
-                torch.save(worker.state_dict(), f"./{OUT_DIR}/200000_net_params.pth")
-            elif worker._learn_step == 250000:
+            if worker._learn_step > 250000:
                 torch.save(worker.state_dict(), f"./{OUT_DIR}/250000_net_params.pth")
+            elif worker._learn_step > 200000:
+                torch.save(worker.state_dict(), f"./{OUT_DIR}/200000_net_params.pth")
+            elif worker._learn_step > 150000:
+                torch.save(worker.state_dict(), f"./{OUT_DIR}/150000_net_params.pth")
+            elif worker._learn_step > 100000:
+                torch.save(worker.state_dict(), f"./{OUT_DIR}/100000_net_params.pth")
+            elif worker._learn_step > 50000:
+                torch.save(worker.state_dict(), f"./{OUT_DIR}/50000_net_params.pth")
+            elif worker._learn_step > 20000:
+                torch.save(worker.state_dict(), f"./{OUT_DIR}/20000_net_params.pth")
             torch.save(worker.state_dict(), f"./{OUT_DIR}/net_params.pth") 
             pd.DataFrame(data=losses_actor).to_csv(f"./{OUT_DIR}/losses.csv")
 
@@ -745,7 +745,7 @@ def learner_process(lock:Lock, traj_q: Queue, agent_q: Queue, agent_param:dict):
             obs, tl_code, action, action_param, reward, next_obs, next_tl_code, done = transition[0], transition[1], transition[2], \
                 transition[3], transition[4], transition[5], transition[6], transition[7]
             learner.store_transition(obs, tl_code, action, action_param, reward, next_obs, next_tl_code, done)
-            #print(len(learner.memory))
+            print(len(learner.memory))
 
         if TRAIN and len(learner.memory)>=learner.minimal_size:
             print("LEARN BEGIN")
@@ -769,9 +769,11 @@ def learner_process(lock:Lock, traj_q: Queue, agent_q: Queue, agent_param:dict):
                 lock.release()
                 #agent_q.put((actor, actor_target, param, param_target, learner._learn_step, loss_actor, Q_loss), block=True, timeout=None)
 
-            if learner._learn_step % 50000 == 0 and bs_pow < 5:
+            if learner._learn_step % 20000 == 0 and bs_pow < 5:
                 learner.burn_in_step=int(math.pow(2, bs_pow))
                 learner.memory.reset(learner.burn_in_step)
+                learner.minimal_size = min(learner.minimal_size+5000, learner.memory_size)
+                torch.save(learner.state_dict(), f"./{OUT_DIR}/mem_{learner.minimal_size}_net_params.pth")
                 bs_pow+=1 
 
 if __name__ == '__main__':

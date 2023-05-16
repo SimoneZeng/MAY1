@@ -47,7 +47,7 @@ sumo_path = os.environ['SUMO_HOME'] # "D:\\sumo\\sumo1.13.0"
 # sumo_dir = "C:\--codeplace--\sumo_inter\sumo_test01\sumo\\" # 1.在本地用这个cfg_path
 # sumo_dir = "D:\Git\MAY1\sumo\\" # 1.在本地用这个cfg_path
 sumo_dir = "/data1/zengximu/sumo_test01/sumo/" # 2. 在服务器上用这个cfg_path
-OUT_DIRs=["../0515/result_pdqn_5l_lstm_mp"]
+OUT_DIRs=["../0516/result_pdqn_5l_ccl1_rainbow_linear_mp","../0516/result_pdqn_5l_ccl2_rainbow_linear_mp"]
 OUT_DIR=""
 sys.path.append(sumo_path)
 sys.path.append(sumo_path + "/tools")
@@ -63,7 +63,7 @@ else:
     sumoBinary = checkBinary('sumo')
 
 cols = ['stage','epo', 'train_step', 'position_y', 'target_direc', 'lane', 'speed', 
-         'lc_int', 'fact_acc', 'acc', 'change_lane', 'r','r_safe', 'r_eff',
+         'lc_int', 'fact_acc', 'acc', 'change_lane', 'ttc', 'tail_car_acc','r','r_safe', 'r_eff',
          'r_com', 'r_tl', 'r_fluc','other_record', 'done', 's', 's_']
 df_record = pd.DataFrame(columns = cols) # 存储transition等信息的dataframe，每个epo建立一个dataframe
 
@@ -329,7 +329,8 @@ def train(agent, control_vehicle, episode, target_dir, CL_Stage):
         agent.store_transition(all_vehicle, tl_code, action_lc_int, all_action_parameters, inf, np.zeros((7,3)), tl_code, done)
         df_record = df_record.append(pd.DataFrame([[stage,episode, train_step, pre_ego_info_dict['position'][0], 
                                                     target_dir, pre_ego_info_dict['LaneID'], 
-                                                    pre_ego_info_dict['speed'], action_lc_int, pre_ego_info_dict['acc'], action_acc, change_lane, 
+                                                    pre_ego_info_dict['speed'], action_lc_int, pre_ego_info_dict['acc'], action_acc, change_lane,
+                                                    inf, traci.vehicle.getAcceleration(v_dict['down']) if v_dict['down'] != '' else inf,  
                                                     inf, 0, 0, 0, 0, 0, 0, done, all_vehicle, np.zeros((7,3))]], columns = cols))
         print("====================右右右右车道撞墙墙墙墙===================")
         return collision, loss_actor, Q_loss
@@ -346,6 +347,7 @@ def train(agent, control_vehicle, episode, target_dir, CL_Stage):
         df_record = df_record.append(pd.DataFrame([[stage,episode, train_step, pre_ego_info_dict['position'][0], 
                                                     target_dir, pre_ego_info_dict['LaneID'], 
                                                     pre_ego_info_dict['speed'], action_lc_int, pre_ego_info_dict['acc'], action_acc, change_lane, 
+                                                    inf, traci.vehicle.getAcceleration(v_dict['down']) if v_dict['down'] != '' else inf,  
                                                     inf, 0, 0, 0, 0, 0, 0, done, all_vehicle, np.zeros((7,3))]], columns = cols))
         print("====================左左左左车道撞墙墙墙墙===================")
         return collision, loss_actor, Q_loss
@@ -471,6 +473,7 @@ def train(agent, control_vehicle, episode, target_dir, CL_Stage):
         print("==========================发生了撞车=========================")
         if control_vehicle == traci.simulation.getCollidingVehiclesIDList()[1]:
             print("与前方车辆撞")
+            y_ttc = 0
             another_co_id = traci.simulation.getCollidingVehiclesIDList()[0]
         elif control_vehicle == traci.simulation.getCollidingVehiclesIDList()[0]:
             print("与后方车辆撞")
@@ -491,7 +494,8 @@ def train(agent, control_vehicle, episode, target_dir, CL_Stage):
         agent.store_transition(all_vehicle, tl_code, action_lc_int, all_action_parameters, inf_car, new_all_vehicle, tl_code, done)
         df_record = df_record.append(pd.DataFrame([[stage,episode, train_step, cur_ego_info_dict['position'][0], 
                                             target_dir, cur_ego_info_dict['LaneID'], 
-                                            cur_ego_info_dict['speed'], action_lc_int, cur_ego_info_dict['acc'], action_acc, change_lane, 
+                                            cur_ego_info_dict['speed'], action_lc_int, cur_ego_info_dict['acc'], action_acc, change_lane,
+                                            y_ttc, traci.vehicle.getAcceleration(v_dict['down']) if v_dict['down'] != '' else inf,  
                                             inf_car, r_safe, r_efficiency, r_comfort, r_tl, r_fluc, get_all_info, done, 
                                             all_vehicle, new_all_vehicle]], columns = cols))
         return collision, loss_actor, Q_loss
@@ -505,6 +509,7 @@ def train(agent, control_vehicle, episode, target_dir, CL_Stage):
     df_record = df_record.append(pd.DataFrame([[stage,episode, train_step, cur_ego_info_dict['position'][0], 
                                                 target_dir, cur_ego_info_dict['LaneID'], 
                                                 cur_ego_info_dict['speed'], action_lc_int, cur_ego_info_dict['acc'], action_acc, change_lane,
+                                                y_ttc, traci.vehicle.getAcceleration(v_dict['down']) if v_dict['down'] != '' else inf,  
                                                 cur_reward, r_safe, r_efficiency, r_comfort, r_tl, r_fluc, get_all_info, done, 
                                                 all_vehicle, new_all_vehicle]], columns = cols))
     

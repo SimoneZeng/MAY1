@@ -3,6 +3,7 @@
 Created on May Thu 4 22:19:26 2023
 
 - 5车道场景，含有curriculum learning
+- 无rule-based guidance，无LSTM，无撞车撞墙的规则限制
 
 stage设计：
 reward一样，每个stage都有r_tl，切换时stage区别跨度较小
@@ -16,18 +17,7 @@ reward权重：
     - safe [-2, 0]
     - comfort [-1, 0]
     - tl [-2, 0]
-使用rainbow_linear模型，使用 rule-based guidance
-之前的 rule 忘记存 bad action了
 
-（1）每个 timestep 都有一个 ToTL in {llc,rlc, lk} ，表示往 TL 的变道方向
-（2）rule-based guidance 使用场景：
-    - 距离 intersection 2a-a 的距离时，not suitable to leave a target lane
-    - 距离 intersection a-0 的距离时，urgent need to act as 𝑇𝑜𝑇 𝐿
-
-（3）RG 为 True 时，并且当ToTL 是 llc 或者 rlc 时，
-    - 判断 ToTLclean，即变道方向是否clean
-    - ToTL侧方有车时，不能变道
-    
 @author: Simone
 """
 
@@ -44,9 +34,9 @@ import math
 import pprint as pp
 import multiprocessing as mp
 from multiprocessing import Process, Queue, Pipe, connection, Lock
-curPath=os.path.abspath(os.path.dirname(__file__))
-rootPath=os.path.split(os.path.split(curPath)[0])[0]
-sys.path.append(rootPath+'/sumo_test01')
+# curPath=os.path.abspath(os.path.dirname(__file__))
+# rootPath=os.path.split(os.path.split(curPath)[0])[0]
+# sys.path.append(rootPath+'/sumo_test01')
 
 #from model.pdqn_model_5tl_lstm import PDQNAgent
 from model.pdqn_model_5tl_rainbow_linear import PDQNAgent
@@ -55,9 +45,9 @@ from model.pdqn_model_5tl_rainbow_linear import PDQNAgent
 # 引入地址 
 sumo_path = os.environ['SUMO_HOME'] # "D:\\sumo\\sumo1.13.0"
 # sumo_dir = "C:\--codeplace--\sumo_inter\sumo_test01\sumo\\" # 1.在本地用这个cfg_path
-#sumo_dir = "D:\Git\MAY1\sumo\\" # 1.在本地用这个cfg_path
-sumo_dir = "/data1/zengximu/sumo_test01/sumo/" # 2. 在服务器上用这个cfg_path
-OUT_DIR="result_pdqn_5l_cl1_rg_rainbow_linear_mp"
+sumo_dir = "D:\Git\MAY1\sumo\\" # 1.在本地用这个cfg_path
+# sumo_dir = "/data1/zengximu/sumo_test01/sumo/" # 2. 在服务器上用这个cfg_path
+OUT_DIR="result_pdqn_5l_cl1_rainbow_linear_mp1"
 sys.path.append(sumo_path)
 sys.path.append(sumo_path + "/tools")
 sys.path.append(sumo_path + "/tools/xml")
@@ -83,7 +73,8 @@ torch.manual_seed(5)
 # PRE_LANE = None
 RL_CONTROL = 1100 # Rl agent take control after 1100 meters
 UPDATE_FREQ = 100 # model update frequency for multiprocess
-DEVICE = torch.device("cuda:3")
+WORKER_NUM = 3 # worker agent number
+DEVICE = torch.device("cuda:0")
 # DEVICE = torch.device("cpu")
 
 def get_all(control_vehicle, select_dis):
@@ -259,10 +250,9 @@ def get_all(control_vehicle, select_dis):
 
 def train(worker, lock, traj_q, agent_q, control_vehicle, episode, target_dir, CL_Stage):
     '''
-    - get_all获得周围信息和动作信息
-    - choose_action 得到返回动作 ret_action_lc_int, ret_action_acc
+    - 根据不同stage以及get_all中ego所在lane，修改其target lanes
+    - choose_action 得到动作 change_lane, action_acc
     - 记录pre数据
-    - rule-based guidance 获得ToTL，RG和ToTLclean修改change_lane, action_acc
     - 根据 change_lane判断是否撞墙，若撞墙，结束回合
     - 根据change_lane, action_acc变道变速
     - 执行，simulateionStep
@@ -279,28 +269,27 @@ def train(worker, lock, traj_q, agent_q, control_vehicle, episode, target_dir, C
     global df_record
     stage = CL_Stage # 当前train是在哪个CL的stage
     
-    # 1. get_all获得周围信息和动作信息
-    detect_dis = 200 # ego车辆的探测距离
-    all_vehicle, rel_up, v_dict = get_all(control_vehicle, detect_dis)
+    # 1. 根据不同stage以及get_all中ego所在lane，修改其target lanes
+    all_vehicle, rel_up, v_dict = get_all(control_vehicle, 200)
     print("$ v_dict", v_dict)
     
     # target_dir_inits 编码
     tl_list = [[0,1,0,0,0,0,1], [1,1,0,1,1,1,0], [1,0,1,1,0,0,0]] # 0 是前方右转，1是直行，2是前方左转
     tl_code = tl_list[target_dir] # 根据target_dir获得对应direction的tl_code
     
-    # 2. choose_action 得到返回动作 ret_action_lc_int, ret_action_acc
+    # 2. choose_action 得到动作 change_lane, action_acc
     if TRAIN:
-        ret_action_lc_int, ret_action_acc, all_action_parameters = worker.choose_action(np.array(all_vehicle), tl_code) # 返回离散lane change ，连续acc，参数
+        action_lc_int, action_acc, all_action_parameters = worker.choose_action(np.array(all_vehicle), tl_code) # 离散lane change ，连续acc，参数
     else:
-        ret_action_lc_int, ret_action_acc, all_action_parameters = worker.choose_action(np.array(all_vehicle), tl_code, train = False)
+        action_lc_int, action_acc, all_action_parameters = worker.choose_action(np.array(all_vehicle), tl_code, train = False)
     
     inf = -10 # 撞墙惩罚
     inf_car = -10 # 撞车惩罚
     done = 0 # 回合结束标志
     
     action_change_dict = {0: 'left', 1: 'keep', 2:'right'}
-    ret_change_lane = action_change_dict[ret_action_lc_int] # 0车道右车道在-8.0；1车道在-4.8；2车道左车道在-1.6
-        
+    change_lane = action_change_dict[action_lc_int] # 0车道右车道在-8.0；1车道在-4.8；2车道左车道在-1.6
+    
     # 3. 记录pre数据
     pre_ego_info_dict = {"speed": traci.vehicle.getSpeed(control_vehicle), 
                          "acc":traci.vehicle.getAcceleration(control_vehicle), 
@@ -312,91 +301,20 @@ def train(worker, lock, traj_q, agent_q, control_vehicle, episode, target_dir, C
     
     get_all_info = [] # 记录与前后车的距离
     get_all_info.append('v_dict')
-    
-    # ego距离6个方向车的纵向距离，初始化为最远的detect_dis
-    dis_to_up = detect_dis
-    dis_to_upright = detect_dis
-    dis_to_upleft = detect_dis
-    dis_to_down = detect_dis
-    dis_to_downright = detect_dis
-    dis_to_downleft = detect_dis
-
     if v_dict['up'] != '':
-        dis_to_up = traci.vehicle.getPosition(v_dict['up'])[0] - pre_ego_info_dict['position'][0]
-        get_all_info.append(("up", v_dict['up'], dis_to_up))
+        get_all_info.append(("up", v_dict['up'], traci.vehicle.getPosition(v_dict['up'])[0] - pre_ego_info_dict['position'][0]))
     if v_dict['upright'] != '':
-        dis_to_upright = traci.vehicle.getPosition(v_dict['upright'])[0] - pre_ego_info_dict['position'][0]
-        get_all_info.append(("upright", v_dict['upright'], dis_to_upright))
+        get_all_info.append(("upright", v_dict['upright'], traci.vehicle.getPosition(v_dict['upright'])[0] - pre_ego_info_dict['position'][0]))
     if v_dict['upleft'] != '':
-        dis_to_upleft = traci.vehicle.getPosition(v_dict['upleft'])[0] - pre_ego_info_dict['position'][0]
-        get_all_info.append(("upleft", v_dict['upleft'], dis_to_upleft))
+        get_all_info.append(("upleft", v_dict['upleft'], traci.vehicle.getPosition(v_dict['upleft'])[0] - pre_ego_info_dict['position'][0]))
     if v_dict['down'] != '':
-        dis_to_down = pre_ego_info_dict['position'][0] - traci.vehicle.getPosition(v_dict['down'])[0]
-        get_all_info.append(("down", v_dict['down'], dis_to_down))
+        get_all_info.append(("down", v_dict['down'], pre_ego_info_dict['position'][0] - traci.vehicle.getPosition(v_dict['down'])[0]))
     if v_dict['downright'] != '':
-        dis_to_downright = pre_ego_info_dict['position'][0] - traci.vehicle.getPosition(v_dict['downright'])[0]
-        get_all_info.append(("downright", v_dict['downright'], dis_to_downright))
+        get_all_info.append(("downright", v_dict['downright'], pre_ego_info_dict['position'][0] - traci.vehicle.getPosition(v_dict['downright'])[0]))
     if v_dict['downleft'] != '':
-        dis_to_downleft = pre_ego_info_dict['position'][0] - traci.vehicle.getPosition(v_dict['downleft'])[0]
-        get_all_info.append(("downleft", v_dict['downleft'], dis_to_downleft))
-
-    # 4. rule-based guidance
-    ego_laneInt = int(pre_ego_info_dict["LaneID"][-1]) # 从左到右是 4 3 2 1 0
-    ToTL = None
-    if target_dir == 0: # 前方需要右转
-        if ego_laneInt != 0:
-            ToTL = 2 # right lc
-        else:
-            ToTL = 1 # lane keeping
-    elif target_dir == 1: # 前方需要直行
-        if ego_laneInt == 0:
-            ToTL = 0 # left lc
-        elif ego_laneInt == 4:
-            ToTL = 2
-        else:
-            ToTL = 1
-    elif target_dir == 2: # 前方需要左转
-        if ego_laneInt in [0, 1, 2]:
-            ToTL = 0
-        else:
-            ToTL = 1
-    
-    RG = False
-    dis_a = 200 # 距离intersection分距离的rule
-    v_length = 5 # 车身长度
-    # 在 ret_action_lc_int 与 ToTL 不一致的情况下，执行分距离的RG
-    if ret_action_lc_int != ToTL:
-        # 距离 intersection 2a ~ a
-        if pre_ego_info_dict['position'][0] >= 3100 - 2 * dis_a and pre_ego_info_dict['position'][0] < 3100 - dis_a:
-            RG = True
-        # 距离 intersection a ~ 0
-        elif pre_ego_info_dict['position'][0] >= 3100 - dis_a:
-            RG = True
-    
-    # 在RG为True 的情况下，判断是否 ToTLclean
-    ToTLclean = False
-    if RG == True:
-        # left lc
-        if ToTL == 0 and dis_to_upleft >= 2 * v_length and dis_to_downleft >= 2 * v_length:
-            ToTLclean = True
-        # right lc
-        if ToTL == 2 and dis_to_upright >= 2 * v_length and dis_to_downright >= 2 * v_length:
-            ToTLclean = True
-    
-    # 在 RG 和 ToTLclean 同时成立的情况下，修正动作；否则，使用模型返回的动作
-    if RG == True and ToTLclean == True:
-        action_lc_int = ToTL
-        action_acc = all_action_parameters[action_lc_int]
-        change_lane = action_change_dict[action_lc_int]
-    else:
-        action_lc_int = ret_action_lc_int
-        action_acc = ret_action_acc
-        change_lane = ret_change_lane
-    
-    get_all_info.append((('RG', RG), ('ToTLclean', ToTLclean), ('ToTL', ToTL), ('ret_action_lc_int', ret_action_lc_int),
-                        ('ret_action_acc', ret_action_acc), ('ret_change_lane', ret_change_lane)))
-    
-    # 5. 根据 change_lane判断是否撞墙，若撞墙，结束回合
+        get_all_info.append(("downleft", v_dict['downleft'], pre_ego_info_dict['position'][0] - traci.vehicle.getPosition(v_dict['downleft'])[0]))
+            
+    # 4. 根据 change_lane判断是否撞墙，若撞墙，结束回合
     collision=0
     loss_actor = 0
     Q_loss = 0
@@ -404,7 +322,7 @@ def train(worker, lock, traj_q, agent_q, control_vehicle, episode, target_dir, C
         collision=1
         done = 1
         train_step = worker._step
-        print(f"\t ====== worker_step:{worker._step} learner_step:{worker._learn_step} target_dir:{target_dir} ======")
+        print(f"\t ====== worker_id:{os.getpid()} worker_step:{worker._step} learner_step:{worker._learn_step} target_dir:{target_dir} ======")
 
         print('$ transition')
         pp.pprint({'obs': all_vehicle, 'act_lc': action_lc_int, 'act_param': all_action_parameters, 
@@ -422,7 +340,7 @@ def train(worker, lock, traj_q, agent_q, control_vehicle, episode, target_dir, C
         collision=1
         done = 1
         train_step = worker._step
-        print(f"\t ====== worker_step:{worker._step} learner_step:{worker._learn_step} target_dir:{target_dir} ======")
+        print(f"\t ====== worker_id:{os.getpid()} worker_step:{worker._step} learner_step:{worker._learn_step} target_dir:{target_dir} ======")
         print('$ transition')
         pp.pprint({'obs': all_vehicle, 'act_lc': action_lc_int, 'act_param': all_action_parameters, 
                   'rew': inf, 'next_obs': np.zeros((7,3)), 'done': done}, indent = 5)
@@ -435,7 +353,7 @@ def train(worker, lock, traj_q, agent_q, control_vehicle, episode, target_dir, C
         print("====================左左左左车道撞墙墙墙墙===================")
         return collision, loss_actor, Q_loss
     
-    # 6. 根据change_lane, action_acc变道变速
+    # 5. 根据change_lane, action_acc变道变速
     # 计算速度，没有限速控制
     sp = traci.vehicle.getSpeed(control_vehicle) + action_acc*0.5 # 0.5s simulate一次
     traci.vehicle.setSpeed(control_vehicle, sp) # 将速度设置好
@@ -461,16 +379,17 @@ def train(worker, lock, traj_q, agent_q, control_vehicle, episode, target_dir, C
         elif '4' in pre_ego_info_dict["LaneID"]:
             traci.vehicle.moveTo(control_vehicle, 'EA_3', traci.vehicle.getLanePosition(control_vehicle))    
     
-    # 7. 执行
+    # 6. 执行
     # ================================执行 ==================================
     traci.simulationStep()
     train_step = worker._step
     print("\t ################ 执行 ###################")
-    print(f"\t ====== worker_step:{worker._step} learner_step:{worker._learn_step} target_dir:{target_dir} ======")
+    print(f"\t ====== worker_id:{os.getpid()} worker_step:{worker._step} learner_step:{worker._learn_step} target_dir:{target_dir} ======")
     
-    # 8. 记录cur数据
+    # 7. 记录cur数据
     new_all_vehicle, new_rel_up, new_v_dict = get_all(control_vehicle, 200)
     print("$ new_v_dict", new_v_dict)
+    # print("\t ", new_v_dict)
 
     cur_ego_info_dict = {"speed": traci.vehicle.getSpeed(control_vehicle), 
                      "acc":traci.vehicle.getAcceleration(control_vehicle), 
@@ -478,10 +397,11 @@ def train(worker, lock, traj_q, agent_q, control_vehicle, episode, target_dir, C
                      # "LaneIndex": traci.vehicle.getLaneIndex(control_vehicle), 
                      "position": traci.vehicle.getPosition(control_vehicle)}
     
+    # print("cur_ego_info_dict", cur_ego_info_dict)
     print("$ cur_ego_info_dict")
     pp.pprint(cur_ego_info_dict, indent = 5)
     
-    # 9. 计算reward
+    # 8. 计算reward
     e = 0.000001 # 避免分母为0
     if 0 <= new_rel_up['relspeed'] < e:
         new_rel_up['relspeed'] = e
@@ -495,8 +415,8 @@ def train(worker, lock, traj_q, agent_q, control_vehicle, episode, target_dir, C
     else:
         r_efficiency = cur_ego_info_dict['speed'] / max_speed
     
-    if 0 < y_ttc < 8: 
-        r_safe = np.log(y_ttc/8)
+    if 0 < y_ttc < 4: 
+        r_safe = np.log(y_ttc/4)
     else:
         r_safe = 0
     
@@ -544,20 +464,8 @@ def train(worker, lock, traj_q, agent_q, control_vehicle, episode, target_dir, C
         get_all_info.append(("downleft", new_v_dict['downleft'], cur_ego_info_dict['position'][0] - traci.vehicle.getPosition(new_v_dict['downleft'])[0]))
     
     cur_reward = r_safe + r_efficiency - r_comfort + r_fluc + r_tl * 2
-    # 计算 bad action 的 bad reward，并存储 transition
-    if RG == True and ToTLclean == True:
-        bad_reward = cur_reward - 0.5 * abs(action_lc_int - ret_action_lc_int) - abs(action_acc-ret_action_acc)
-        done = 1
-        traj_q.put((deepcopy(all_vehicle), deepcopy(tl_code), deepcopy(ret_action_lc_int), deepcopy(all_action_parameters),
-                bad_reward, deepcopy(np.zeros((7,3))), deepcopy(tl_code), done), block=True, timeout=None)
-        df_record = df_record.append(pd.DataFrame([[stage,episode, train_step, cur_ego_info_dict['position'][0], 
-                                                    target_dir, cur_ego_info_dict['LaneID'], 
-                                                    cur_ego_info_dict['speed'], action_lc_int, cur_ego_info_dict['acc'], ret_action_lc_int, ret_change_lane,
-                                                    bad_reward, 0, 0, 0, 0, 0, get_all_info, done, 
-                                                    all_vehicle, np.zeros((7,3))]], columns = cols))
-        done = 0 # 改成 0 继续跑，否则 revised action中的done 也会是1
     
-    # 10. 查询自动驾驶车是否发生碰撞
+    # 9. 查询自动驾驶车是否发生碰撞
     collision=0
     loss_actor = 0
     Q_loss = 0
@@ -607,7 +515,7 @@ def train(worker, lock, traj_q, agent_q, control_vehicle, episode, target_dir, C
     
     if TRAIN and not agent_q.empty():
         lock.acquire()
-        model_dict=torch.load(f"./{OUT_DIR}/learner.pth", map_location=DEVICE)
+        model_dict=torch.load(f"./{OUT_DIR}/worker_{os.getpid()}.pth", map_location=DEVICE)
         worker.actor.load_state_dict(model_dict["actor"])
         worker.actor_target.load_state_dict(model_dict["actor_target"])
         worker.param.load_state_dict(model_dict["param"])
@@ -632,13 +540,99 @@ def main_train():
         "acc3": True,
         "Kaiming_normal": False,
         "memory_size": 40000,
-        "minimal_size": 5000,
+        "minimal_size": 500,
         "batch_size": 128,
         "n_step": 3,
         "per_flag": True,
         "device": DEVICE
     }
 
+    learner = PDQNAgent(
+        state_dim=agent_param["s_dim"],
+        action_dim=agent_param["a_dim"],
+        acc3=agent_param["acc3"],
+        Kaiming_normal=agent_param["Kaiming_normal"],
+        memory_size=agent_param["memory_size"],
+        minimal_size=agent_param["minimal_size"],
+        batch_size=agent_param["batch_size"],
+        n_step=agent_param["n_step"],
+        per_flag=agent_param["per_flag"],
+        device=agent_param["device"])
+    
+    # (1) 区分train和test的参数设置，以及output位置
+    if not TRAIN:
+        globals()['WORKER_NUM'] = 1
+    else:
+        if os.path.exists(f"./model_params/{OUT_DIR}_net_params.pth"): #load pre-trained model params for further training
+            learner.load_state_dict(torch.load(f"./model_params/{OUT_DIR}_net_params.pth", map_location=DEVICE)) 
+    
+    try:
+        process=list()
+        traj_q=Queue(maxsize=5000)
+        agent_qs=[Queue(maxsize=1) for _ in range(WORKER_NUM)]
+        locks=[Lock() for _ in range(WORKER_NUM)]
+        [process.append(mp.Process(target=worker_process, args=(locks[i], traj_q, agent_qs[i], deepcopy(agent_param)))) for i in range(WORKER_NUM)]
+        [p.start() for p in process]
+        
+        # 创建output文件夹
+        if not os.path.exists(OUT_DIR):
+            os.makedirs(OUT_DIR)
+        else:
+            shutil.rmtree(OUT_DIR, ignore_errors=True)
+            os.makedirs(OUT_DIR)
+        
+        while(True):
+            #k=max(len(learner.memory)//learner.minimal_size, 1)
+            #learner.batch_size*=k
+            for _ in range(UPDATE_FREQ):
+                transition=traj_q.get(block=True, timeout=None)
+                obs, tl_code, action, action_param, reward, next_obs, next_tl_code, done = transition[0], transition[1], transition[2], \
+                    transition[3], transition[4], transition[5], transition[6], transition[7]
+                learner.store_transition(obs, tl_code, action, action_param, reward, next_obs, next_tl_code, done)
+
+            if TRAIN and len(learner.memory)>=learner.minimal_size:
+                print("LEARN BEGIN")
+                for _ in range(UPDATE_FREQ):
+                    loss_actor, Q_loss=learner.learn()
+                #loss_actor, Q_loss=[learner.learn() for _ in range(k)]
+                if learner._learn_step % UPDATE_FREQ == 0:
+                    for i, agent_q in enumerate(agent_qs):
+                        if not agent_q.full():
+                            # actor=deepcopy(learner.actor.state_dict())
+                            # actor_target=deepcopy(learner.actor_target.state_dict())
+                            # param=deepcopy(learner.param.state_dict())
+                            # param_target=deepcopy(learner.param_target.state_dict())
+                            
+                            locks[i].acquire()
+                            agent_q.put((deepcopy(learner._learn_step), deepcopy(loss_actor), deepcopy(Q_loss)), block=True, timeout=None)
+                            torch.save({
+                                "actor":learner.actor.state_dict(),
+                                "actor_target":learner.actor_target.state_dict(),
+                                "param":learner.param.state_dict(),
+                                "param_target":learner.param_target.state_dict()
+                            }, f"./{OUT_DIR}/worker_{process[i].pid}.pth")
+                            locks[i].release()  
+            
+                if learner._learn_step > 250000:
+                    torch.save(learner.state_dict(), f"./{OUT_DIR}/250000_net_params.pth")
+                elif learner._learn_step > 200000:
+                    torch.save(learner.state_dict(), f"./{OUT_DIR}/200000_net_params.pth")
+                elif learner._learn_step > 150000:
+                    torch.save(learner.state_dict(), f"./{OUT_DIR}/150000_net_params.pth")
+                elif learner._learn_step > 100000:
+                    torch.save(learner.state_dict(), f"./{OUT_DIR}/100000_net_params.pth")
+                elif learner._learn_step > 50000:
+                    torch.save(learner.state_dict(), f"./{OUT_DIR}/50000_net_params.pth")
+                elif learner._learn_step > 20000:
+                    torch.save(learner.state_dict(), f"./{OUT_DIR}/20000_net_params.pth")
+            
+    except BaseException as e:
+        print(e.args)
+    finally:
+        torch.save(learner.state_dict(), f"./{OUT_DIR}/net_params.pth") 
+        [p.join() for p in process]
+
+def worker_process(lock:Lock, traj_q: Queue, agent_q: Queue, agent_param: dict):
     worker = PDQNAgent(
         state_dim=agent_param["s_dim"],
         action_dim=agent_param["a_dim"],
@@ -650,12 +644,6 @@ def main_train():
         n_step=agent_param["n_step"],
         per_flag=agent_param["per_flag"],
         device=agent_param["device"])
-    process=list()
-    traj_q=Queue(maxsize=40000)
-    agent_q=Queue(maxsize=1)
-    lock=Lock()
-    process.append(mp.Process(target=learner_process, args=(lock, traj_q, agent_q, deepcopy(agent_param))))
-    [p.start() for p in process]
 
     losses_actor = [] # 不需要看第一个memory 即前20000步
     losses_episode = [] # 存一个episode的loss，一个episode结束后清除内容
@@ -668,20 +656,21 @@ def main_train():
         CL_Stage = 4 # test都在最后一个stage进行
         worker.load_state_dict(torch.load(f"{OUT_DIR}/net_params.pth", map_location=DEVICE))
         globals()['RL_CONTROL']=1100
-        globals()['OUT_DIR']=f"./{OUT_DIR}/test"
+        out_dir = f"./{OUT_DIR}/test/{os.getpid()}"
     else:
         episode_num = 20000 # train的episode上限
-        CL_Stage = 1 # train从stage 1 开始
-        # CL_Stage = 4
+        #CL_Stage = 1 # train从stage 1 开始
+        CL_Stage = 4
         if os.path.exists(f"./model_params/{OUT_DIR}_net_params.pth"): #load pre-trained model params for further training
-            worker.load_state_dict(torch.load(f"./model_params/{OUT_DIR}_net_params.pth", map_location=DEVICE)) 
+            worker.load_state_dict(torch.load(f"./model_params/{OUT_DIR}_net_params.pth", map_location=DEVICE))
+        out_dir = f"./{OUT_DIR}/{os.getpid()}"
     
     # 创建output文件夹
-    if not os.path.exists(OUT_DIR):
-        os.makedirs(OUT_DIR)
+    if not os.path.exists(out_dir):
+        os.makedirs(out_dir)
     else:
-        shutil.rmtree(OUT_DIR, ignore_errors=True)
-        os.makedirs(OUT_DIR)
+        shutil.rmtree(out_dir, ignore_errors=True)
+        os.makedirs(out_dir)
     
     # (2) 分episode进行 train / test
     for epo in range(episode_num): 
@@ -690,15 +679,8 @@ def main_train():
         
         # (3) 根据不同的CL_Stage启动对应的sumoCmd
         # stage 1 在5车道中模拟2车道，之后的stage都是5车道
-        if CL_Stage == 1:
-            cfg_path = f"{sumo_dir}cfg_CL1_s{CL_Stage}.sumocfg"
-        elif CL_Stage == 2:
-            cfg_path = f"{sumo_dir}cfg_CL2_low.sumocfg"
-        elif CL_Stage == 3:
-            cfg_path = f"{sumo_dir}cfg_CL2_mid.sumocfg"
-        elif CL_Stage == 4:
-            cfg_path = f"{sumo_dir}cfg_CL2_high.sumocfg"
-        sumoCmd = [sumoBinary, "-c", cfg_path, "--log", f"{OUT_DIR}/logfile_{CL_Stage}.txt"]
+        cfg_path = f"{sumo_dir}cfg_CL1_s{CL_Stage}.sumocfg"
+        sumoCmd = [sumoBinary, "-c", cfg_path, "--log", f"{out_dir}/logfile_{CL_Stage}.txt"]
         traci.start(sumoCmd)
         ego_index = 5 + epo % 20   # 选取随机车道第index辆出发的车为我们的自动驾驶车
         if CL_Stage == 1:            
@@ -719,7 +701,7 @@ def main_train():
         df_record = pd.DataFrame(columns = cols)
         
         print(f"+++++++{epo}  STAGE:{CL_Stage} +++++++++++++")
-        print(f"++++++++++++++++++ {OUT_DIR} +++++++++++++++++++++++")
+        print(f"++++++++++++++++++ {out_dir} +++++++++++++++++++++++")
         
         # (4) 一个episode中的交互
         while traci.simulation.getMinExpectedNumber() > 0:
@@ -798,70 +780,10 @@ def main_train():
         losses_episode.clear()
         
         # 保存
-        df_record.to_csv(f"{OUT_DIR}/df_record_epo_{epo}.csv", index = False)
+        df_record.to_csv(f"{out_dir}/df_record_epo_{epo}.csv", index = False)
         if TRAIN:
-            if worker._learn_step > 250000:
-                torch.save(worker.state_dict(), f"./{OUT_DIR}/250000_net_params.pth")
-            elif worker._learn_step > 200000:
-                torch.save(worker.state_dict(), f"./{OUT_DIR}/200000_net_params.pth")
-            elif worker._learn_step > 150000:
-                torch.save(worker.state_dict(), f"./{OUT_DIR}/150000_net_params.pth")
-            elif worker._learn_step > 100000:
-                torch.save(worker.state_dict(), f"./{OUT_DIR}/100000_net_params.pth")
-            elif worker._learn_step > 50000:
-                torch.save(worker.state_dict(), f"./{OUT_DIR}/50000_net_params.pth")
-            elif worker._learn_step > 20000:
-                torch.save(worker.state_dict(), f"./{OUT_DIR}/20000_net_params.pth")
-            torch.save(worker.state_dict(), f"./{OUT_DIR}/net_params.pth") 
-            pd.DataFrame(data=losses_actor).to_csv(f"./{OUT_DIR}/losses.csv")
-
-    [p.join() for p in process]
-
-def learner_process(lock:Lock, traj_q: Queue, agent_q: Queue, agent_param:dict):
-    learner = PDQNAgent(
-        state_dim=agent_param["s_dim"],
-        action_dim=agent_param["a_dim"],
-        acc3=agent_param["acc3"],
-        Kaiming_normal=agent_param["Kaiming_normal"],
-        memory_size=agent_param["memory_size"],
-        minimal_size=agent_param["minimal_size"],
-        batch_size=agent_param["batch_size"],
-        n_step=agent_param["n_step"],
-        per_flag=agent_param["per_flag"],
-        device=agent_param["device"])
-    if TRAIN and os.path.exists(f"./model_params/{OUT_DIR}_net_params.pth"):
-        learner.load_state_dict(torch.load(f"./model_params/{OUT_DIR}_net_params.pth", map_location=DEVICE))
-    
-    while(True):
-        #k=max(len(learner.memory)//learner.minimal_size, 1)
-        #learner.batch_size*=k
-        for _ in range(UPDATE_FREQ):
-            transition=traj_q.get(block=True, timeout=None)
-            obs, tl_code, action, action_param, reward, next_obs, next_tl_code, done = transition[0], transition[1], transition[2], \
-                transition[3], transition[4], transition[5], transition[6], transition[7]
-            learner.store_transition(obs, tl_code, action, action_param, reward, next_obs, next_tl_code, done)
-
-        if TRAIN and len(learner.memory)>=learner.minimal_size:
-            print("LEARN BEGIN")
-            for _ in range(UPDATE_FREQ):
-                loss_actor, Q_loss=learner.learn()
-            #loss_actor, Q_loss=[learner.learn() for _ in range(k)]
-            if not agent_q.full() and learner._learn_step % UPDATE_FREQ == 0:
-                # actor=deepcopy(learner.actor.state_dict())
-                # actor_target=deepcopy(learner.actor_target.state_dict())
-                # param=deepcopy(learner.param.state_dict())
-                # param_target=deepcopy(learner.param_target.state_dict())
-                
-                lock.acquire()
-                agent_q.put((deepcopy(learner._learn_step), deepcopy(loss_actor), deepcopy(Q_loss)), block=True, timeout=None)
-                torch.save({
-                    "actor":learner.actor.state_dict(),
-                    "actor_target":learner.actor_target.state_dict(),
-                    "param":learner.param.state_dict(),
-                    "param_target":learner.param_target.state_dict()
-                }, f"./{OUT_DIR}/learner.pth")
-                lock.release()
-                #agent_q.put((actor, actor_target, param, param_target, learner._learn_step, loss_actor, Q_loss), block=True, timeout=None)
+            torch.save(worker.state_dict(), f"./{out_dir}/net_params.pth") 
+            pd.DataFrame(data=losses_actor).to_csv(f"./{out_dir}/losses.csv")
 
 if __name__ == '__main__':
     mp.set_start_method(method="spawn", force=True)
