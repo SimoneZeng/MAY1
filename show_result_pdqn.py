@@ -1,14 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-Created on Thu Sep  8 10:04:40 2022
+Created on Tue May  16 10:34:40 2023
 
-绘图 训练结果
-统计每个epo的最终结果 last_line，拼接成所有回合的大表 df_all_epo
-在统计df_all_epo的一些观测值，例如每100个回合算reward平均值，获取观测值随着不同回合的变化
+统计pdqn 的训练和测试结果
 
-注意删掉一开始就撞车的回合
+包括 6 和 宏观指标， 3 个微观指标
+AvgA-C average affection times 还没有计算
 
-@author: Skye
+@author: Simone
 """
 
 
@@ -16,234 +15,218 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import os
 from tqdm import tqdm
+import pprint as pp
 
-memory_size = 20000 # 20000 200000 bmem
+memory_size = 40000 # 20000 200000 bmem 40000
 TRAIN = False # True False
-PRETRAIN = False # True False 加入预训练
+ 
+# name = 'pdqn_5l_rainbow_linear_mp'
+# record_dir = './0516/result_pdqn_5l_linear_mp'
+record_dir = './0516/result_pdqn_5l_cl1_rainbow_linear_mp/test'
+# record_dir = './0516'
 
-record_dir = './result_pdqn_5l_lstm_mp/test'
-# record_dir = './result_record_pdqn_3r_5tl_tlr_noctrl_linear_5l'
+def get_df_all_epo(record_dir):
+# if __name__ == '__main__':
+    '''
+    整理每个 epo 的数据，获得 df_all，一个 epo 对应 df_all 中的一条数据
+    macroscopic metrics:
+        - Success
+        - AvgT average travelling time
+        - AvgLC average lane changing times
+        - AvgC-C average rate of collision with conventional vehicle # 撞车
+        - AvgRI average rate of off-road infraction # 撞墙
+        - AvgA-C average affection times that the autonomous vehicle has negative impact on its following 
+    microscopic metrics:
+        - AvgTTC-A
+        - AvgV-A
+        - AvgJ-A
+    '''
+    cols = ['epo', 'total_step', 'epo_step', 'target_direc', 'position_y', 'lane','avg_r', 'sum_r', 'dis_to_target_lane',
+            'success', 'lane_change_times', 'co_vehicle', 'co_road', 'affect_times', 
+            'avg_ttc', 'avg_velocity', 'avg_jerk', 'rg_times']
+    df_all = pd.DataFrame(columns = cols)
+    fail_cnt = 0 # one_file中没有结果
+    csv_cnt = len([n for n in os.listdir(record_dir)]) # 统计文件夹下的文件个数
 
-# 1. 整理每个epo的数据，获得df_all_epo
-cols = ['epo', 'train_step', 'position_y', 'target_direc', 'lane', 'r_avg', 'r_sum', 'dis_to_target_lane']
-df_all_epo = pd.DataFrame(columns = cols)
-inf_car = -10 # -10 -100
-
-fail_cnt = 0 # one_file中没有结果
-csv_cnt = len([n for n in os.listdir(record_dir)]) # 统计文件夹下的文件个数
-
-# # 找撞车原因 全都是10m处撞的
-# df_another_co = pd.DataFrame(columns = ['epo', 'other_record'])
-
-# for i in tqdm(range(csv_cnt-5)):
-#     if os.path.getsize(f"{record_dir}/df_record_epo_{i}.csv") > 0:
-#         one_file = pd.read_csv(f"{record_dir}/df_record_epo_{i}.csv")
-#         last_line = one_file.iloc[-1,:]
-#         other_record = last_line['other_record']
-#         if 'another_co_id' in other_record:
-#             df_another_co = df_another_co.append({'epo':i, 'other_record': other_record}, ignore_index=True)
-
-for i in tqdm(range(csv_cnt-5)):
-    if os.path.getsize(f"{record_dir}/df_record_epo_{i}.csv") > 0:
-        if PRETRAIN and (i%2 == 1): # 去除预训练的步骤
-            continue
-        one_file = pd.read_csv(f"{record_dir}/df_record_epo_{i}.csv")
-        one_file = one_file.drop(index = one_file[(one_file['r']==-1)].index.tolist()) # 去掉撞墙时r为-1的记录，否则某些time step重复记录了两次
-        # one_file = one_file.drop(index = one_file[(one_file['r']==inf_car )].index.tolist()) # 去掉最后一条为-3的 -100
-        # 惩罚都为 -10 
-        one_file = one_file.drop(index = one_file[(one_file['r']==-10 )].index.tolist()) 
-        one_file = one_file.drop(index = one_file[(one_file['r']==-100 )].index.tolist()) 
-    
-        if len(one_file) >= 2:
-            last_line = one_file.iloc[-1,:]
-            last_line['r_sum'] = one_file['r'].sum() # float
-            # last_line['dis_to_target_lane'] = abs(int(last_line['lane'][-1]) - last_line['target_lane']) # int
-            # 车道分布从左到右是4 3 2 1 0
-            if last_line['target_direc'] == 0: # 0 是右转
-                last_line['dis_to_target_lane'] = abs(int(last_line['lane'][-1]) - 0) # int
-            elif last_line['target_direc'] == 1:# 1 是直行
-                last_line['dis_to_target_lane'] = min(abs(int(last_line['lane'][-1]) - 1),
-                                                      abs(int(last_line['lane'][-1]) - 2),
-                                                      abs(int(last_line['lane'][-1]) - 3))
-            elif last_line['target_direc'] == 2:# 1 是左转
-                last_line['dis_to_target_lane'] = min(abs(int(last_line['lane'][-1]) - 3),
-                                                      abs(int(last_line['lane'][-1]) - 4))
-            last_line['r_avg'] = last_line['r_sum'] / (- one_file.iloc[0,:]['train_step'] + last_line['train_step'] + 1) # 每个回合的平均reward
-            last_line = last_line[cols] # 选取需要的数据
+    for i in tqdm(range(csv_cnt - 20)): # 去掉一定数量的非 record 文件
+        if os.path.getsize(f"{record_dir}/df_record_epo_{i}.csv") > 0:
+            one_file = pd.read_csv(f"{record_dir}/df_record_epo_{i}.csv")
             
-            df_all_epo = df_all_epo.append(last_line)
-        # else:
-            # df_all_epo = df_all_epo.append({'epo':i, 'train_step':0,'position_y':0,
-            #                                 'target_lane':0,'tl_code':0,'lane':0, 'r_avg':0, 'r_sum':0, 
-            #                                 'dis_to_target_lane':0}, ignore_index=True)
-            # df_all_epo = df_all_epo.append({'epo':i, 'train_step':0,'position_y':0,
-                                            # 'tl_int':0,'tl_code':0,'lane':0, 'r_avg':0, 'r_sum':0, 
-                                            # 'dis_to_target_lane':0}, ignore_index=True)
-    else:
-        fail_cnt += 1
-
-del i, last_line
-
-# 绘图
-df_all_epo = df_all_epo.drop(index = df_all_epo[(df_all_epo['position_y']==0)].index.tolist()) # 去掉没有行驶到1100m的
-
-
-# 2. 每100个回合算reward平均值
-df_100 = pd.DataFrame(columns = ['epo', 'r_avg_100', 'y_avg_100'])
-for i in range(0, len(df_all_epo)-100+1):
-    r_avg = df_all_epo.iloc[i:i+100]['r_avg'].mean() # 从i到1+100-1的 r_avg 平均值
-    y_avg = df_all_epo.iloc[i:i+100]['position_y'].mean()
-    df_100 = df_100.append({'epo':i,'r_avg_100':r_avg, 'y_avg_100': y_avg},ignore_index=True)
-    
-
-# 3. 计算什么时候开始学习
-# step_cnt = 0
-start_train = 0 # 开始训练的位置
-if TRAIN:
-    for i in df_all_epo['epo'].to_list(): # 不能用 for i in range(len(df_all_epo)):  有些epo被删去了，只能按照epo中的来
-        if df_all_epo.iloc[i]['train_step'] >= memory_size: # train_step统计的是，所有的和
-            start_train = df_all_epo.iloc[i]['epo']
-            break
-    
-# 绘图 统计r_avg per episode 和 average of 100 episodes\' r_avg
-plt.figure(figsize=(12,6))
-plt.xlabel("epo", fontsize=14) # x y轴含义
-plt.ylabel("r_avg", fontsize=14)
-type1 = plt.scatter(df_all_epo['epo'].to_list(), df_all_epo['r_avg'].to_list())
-type2 = plt.scatter(df_100['epo'].to_list(), df_100['r_avg_100'].to_list(), marker='^')
-plt.legend((type1, type2), ('r_avg per episode', 'average of 100 episodes\' r_avg'), fontsize=14)
-plt.axvline(start_train, color='red', linewidth=2) # 开始训练的位置
-plt.tick_params(labelsize=14) # 坐标轴字体
-#plt.savefig('./1012/result_record_sp8_ttc_co100.jpg') # 先save再show；反之保存的图片为空
-plt.show()
-
-# 绘图 统计 position_y per episode 和 average of 100 episodes\' position_y
-plt.figure(figsize=(12,6))
-plt.xlabel("epo", fontsize=14) # x y轴含义
-plt.ylabel("position_y", fontsize=14)
-type1 = plt.scatter(df_all_epo['epo'].to_list(), df_all_epo['position_y'].to_list())
-type2 = plt.scatter(df_100['epo'].to_list(), df_100['y_avg_100'].to_list(), marker='^')
-plt.legend((type1, type2), ('y per episode', 'average of 100 episodes\' y_avg'), fontsize=14)
-plt.axvline(start_train, color='red', linewidth=2) # 开始训练的位置
-plt.tick_params(labelsize=14) # 坐标轴字体
-#plt.savefig('./1012/y_avg-result_record_sp8_ttc_co100.jpg') # 先save再show；反之保存的图片为空
-plt.show()
-
-del r_avg, y_avg # 删掉一些没用的变量，方便查看其他有用的变量 
-
-
-'''
-统计撞车的原因
-'''
-cols = ['epo', 'train_step', 'position_y', 'r_safe', 'collision_reason']
-co_all_epo = pd.DataFrame(columns = cols)
-
-fail_cnt = 0 # one_file中没有结果
-csv_cnt = len([n for n in os.listdir(record_dir)]) # 统计文件夹下的文件个数
-
-for i in tqdm(range(csv_cnt-5)): # 减去两个模型保存文件的数量
-    if os.path.getsize(record_dir) > 0:
-        one_file = pd.read_csv(f"{record_dir}/df_record_epo_{i}.csv")
-        one_file = one_file.drop(index = one_file[(one_file['r']==-1)].index.tolist()) # 去掉撞墙时r为-1的记录，否则某些time step重复记录了两次
-        # one_file = one_file.drop(index = one_file[(one_file['r']==inf_car )].index.tolist()) # 去掉最后一条为-3的 -100
-        # 惩罚都为 -10 
-        one_file = one_file.drop(index = one_file[(one_file['r']==-10 )].index.tolist()) 
-        one_file = one_file.drop(index = one_file[(one_file['r']==-100 )].index.tolist()) 
-        
-        # 1.如果epo中有2条以上记录
-        if len(one_file) >= 2:
-            last_line = one_file.iloc[-1,:]
-            second_last_line = one_file.iloc[-2,:]
+            # 除了表头还有2条以上的记录
+            if len(one_file) >= 3:
+                ori_last_line = one_file.iloc[-1,:] # 原始最后一行记录，可能超出3100m
+                new_one_file = one_file.copy()
+                rg_times = new_one_file['done'].sum()
+                # 不能直接删掉最后一行，有碰撞时，需要考虑碰撞惩罚；无碰撞时，可以去掉最后大于3100m 的数据
+                new_one_file.drop(index = new_one_file[(new_one_file['position_y'] < 0)].index.tolist(), inplace=True) # 碰撞后 position_y 为负的小bug
+                new_one_file.drop(index = new_one_file[(new_one_file['position_y'] >= 3100)].index.tolist(), inplace=True)
+                # 去除中间修正数据，不包括最后一行 即 0 : -1
+                new_one_file.drop(index = new_one_file.iloc[0:-1,:][(new_one_file.iloc[0:-1,:]['done'] == 1)].index.tolist(), inplace=True) 
+                last_line = new_one_file.iloc[-1,:] 
+                
+                epo_analysis = last_line
+                epo_analysis['epo'] = last_line['epo']
+                epo_analysis['total_step'] = last_line['train_step']
+                epo_analysis['target_direc'] = last_line['target_direc']
+                epo_analysis['rg_times'] = rg_times
+                epo_analysis['epo_step'] = len(new_one_file)
+                
+                # 完成了
+                if last_line['position_y'] >= 3080: # 最后一条的位置超出3100不准确
+                    epo_analysis['position_y'] = 3100
+                    # 宏观 4 5
+                    epo_analysis['co_vehicle'] = 0
+                    epo_analysis['co_road'] = 0  
+                # 没完成，有碰撞
+                else:
+                    epo_analysis['position_y'] = last_line['position_y']
+                    epo_analysis['rg_times'] = epo_analysis['rg_times'] - 1 # 去除最后一条碰撞的 done=1
+                    if 'another_co_id' in ori_last_line['other_record']: # 判断碰撞原因
+                        epo_analysis['co_vehicle'] = 1
+                        epo_analysis['co_road'] = 0
+                    else:
+                        epo_analysis['co_vehicle'] = 0
+                        epo_analysis['co_road'] = 1
+                    
+                epo_analysis['lane'] = last_line['lane']
+                epo_analysis['sum_r'] = new_one_file['r'].sum()
+                epo_analysis['avg_r'] = epo_analysis['sum_r'] / epo_analysis['epo_step']
+                
+                # 驶入下一段路时，用 second_last_line 判断 dis_to_target_lane
+                if epo_analysis['target_direc'] == 0: # 0 是右转
+                    epo_analysis['dis_to_target_lane'] = abs(int(last_line['lane'][-1]) - 0) # int
+                elif epo_analysis['target_direc'] == 1:# 1 是直行
+                    epo_analysis['dis_to_target_lane'] = min(abs(int(last_line['lane'][-1]) - 1),
+                                                          abs(int(last_line['lane'][-1]) - 2),
+                                                          abs(int(last_line['lane'][-1]) - 3))
+                elif epo_analysis['target_direc'] == 2:# 1 是左转
+                    epo_analysis['dis_to_target_lane'] = min(abs(int(last_line['lane'][-1]) - 3),
+                                                          abs(int(last_line['lane'][-1]) - 4))
+                # 宏观 1 
+                if epo_analysis['position_y'] == 3100 and epo_analysis['dis_to_target_lane'] == 0:
+                    epo_analysis['success'] = 1
+                else:
+                    epo_analysis['success'] = 0
+                # 宏观 3
+                epo_analysis['lane_change_times'] = 0
+                lane_change_cnt = new_one_file['change_lane'].value_counts()
+                if 'left' in dict(lane_change_cnt).keys():
+                    epo_analysis['lane_change_times'] += lane_change_cnt['left']
+                if 'right' in dict(lane_change_cnt).keys():
+                    epo_analysis['lane_change_times'] += lane_change_cnt['right']
+                # 宏观 6
+                # epo_analysis['affect_times'] = 0
+                epo_analysis['affect_times'] = len(new_one_file[(new_one_file['tail_car_acc'] >= 0.5)].index.tolist())
+                
+                # 微观 1
+                # 筛选 ttc 在 0~50的数据
+                epo_ttc = new_one_file[(new_one_file['ttc'] > 0) & (new_one_file['ttc'] <= 50)]
             
-            if last_line['position_y'] > 3080:
-                last_line['collision_reason'] = 'no collision'
-            elif last_line['change_lane'] != 'keep':
-                last_line['collision_reason'] = 'change lane collision'
-            elif second_last_line['r_safe'] != 0 and second_last_line['r_safe'] != -1: # 看倒数第2行的数据，-1也能是撞墙
-                last_line['collision_reason'] = 'hit leading vehicle'
-            else:
-                last_line['collision_reason'] = 'unknown'
-        
-            last_line = last_line[cols] # 选取需要的数据
-            co_all_epo = co_all_epo.append(last_line)
-        # 2.如果epo中只有1条记录
-        elif len(one_file) == 1:
-            last_line = one_file.iloc[-1,:]
-            last_line['collision_reason'] = 'beginning collision'
-            last_line = last_line[cols] # 选取需要的数据
-            co_all_epo = co_all_epo.append(last_line)
-        # 2.如果epo中没有记录
+                
+                epo_analysis['avg_ttc'] = 0
+                if len(epo_ttc) > 0:
+                    epo_analysis['avg_ttc'] = epo_ttc['ttc'].mean()
+                # 微观 2
+                epo_analysis['avg_velocity'] = new_one_file['speed'].mean()
+                # 微观 3
+                epo_analysis['avg_jerk'] = abs(new_one_file['acc']).mean()
+                    
+                
+                epo_analysis = epo_analysis[cols] # 选取需要的数据
+                df_all = df_all.append(epo_analysis)
+
         else:
-            co_all_epo = co_all_epo.append({'epo':0, 'train_step':0,'position_y':0,
-                                            'r_safe':0, 'collision_reason': '0'}, ignore_index=True)
+            fail_cnt += 1
+    
+    
+    return df_all
+
+def print_metric(df_all):
+    df_all_epo = df_all.copy()
+    result_metric = {}
+    result_metric['Success'] = df_all_epo['success'].mean()
+    result_metric['AvgT'] = 0.5 * df_all_epo['epo_step'].mean() # 每个时间步是 0.5 s
+    result_metric['AvgLC'] = df_all_epo['lane_change_times'].mean()
+    result_metric['AvgC-C'] = df_all_epo['co_vehicle'].mean()
+    result_metric['AvgRI'] = df_all_epo['co_road'].mean()
+    result_metric['AvgA-C'] = df_all_epo['affect_times'].mean()
+    
+    result_metric['AvgTTC-A'] = df_all_epo['avg_ttc'].mean()
+    result_metric['AvgV-A'] = df_all_epo['avg_velocity'].mean()
+    result_metric['AvgJ-A'] = df_all_epo['avg_jerk'].mean()
+    print(result_metric)
+
+def smooth(data, sm=1):
+    pri_sum = []
+    sum_i = 0
+    for d in data:
+        sum_i = sum_i + d
+        pri_sum.append(sum_i)
+    smooth_data = []
+    for i in range(len(data)):
+        if i >= sm * 2:
+            smooth_data.append((pri_sum[i]-pri_sum[i-sm * 2]) / (sm * 2))
+    return smooth_data
+
+def draw_epo_reward(df_all_epo, sm_size ): 
+    df = df_all_epo.copy()
+    sm_size = sm_size
+    epo_reward = smooth(df['avg_r'].to_list(), sm = sm_size) # 从 2 倍sm_size开始才有数据
+    
+    # 绘图 epo 和平滑后的 reward
+    plt.figure(figsize=(12,6))
+    plt.xlabel("epo", fontsize=14) # x y轴含义
+    plt.ylabel("average reward per episode", fontsize=14)
+    plt.plot(df["epo"][2 * sm_size:,], epo_reward, 's-', color = 'g', label = 'model') # s- 方形， o- 圆形
+    plt.tick_params(labelsize=14) # 坐标轴字体
+    #plt.savefig('./1012/result_record_sp8_ttc_co100.jpg') # 先save再show；反之保存的图片为空
+    plt.show()
+    
+
+if __name__ == '__main__':
+    '''
+    macroscopic metrics:
+        - Success
+        - AvgT average travelling time
+        - AvgLC average lane changing times
+        - AvgC-C average rate of collision with conventional vehicle # 撞车
+        - AvgRI average rate of off-road infraction # 撞墙
+        - AvgA-C average affection times that the autonomous vehicle has negative impact on its following 
+    microscopic metrics:
+        - AvgTTC-A
+        - AvgV-A
+        - AvgJ-A
+    '''
+    # df_all_epo = get_df_all_epo(record_dir)
+    # df_all_epo.to_csv(f"{record_dir}/all_epo.csv", index = False)
+    # print_metric(df_all_epo)
+    # draw_epo_reward(df_all_epo, sm_size = 10)
+    
+    method_name = ['pdqn_5l_linear_mp', 'pdqn_5l_cl2_rg_rainbow_linear_mp', 
+                    'pdqn_5l_cl2_rainbow_linear_mp', 'pdqn_5l_ccl2_rainbow_linear_mp',
+                    'pdqn_5l_cl1_rg_rainbow_linear_mp', 'pdqn_5l_cl1_rainbow_linear_mp',
+                    'pdqn_5l_ccl1_rainbow_linear_mp']
+    
+    
+    sm_size = 50
+    
+    plt.figure(figsize=(24,12))
+    plt.xlabel("epo", fontsize=14) # x y轴含义
+    plt.ylabel("average reward per episode", fontsize=14) 
+    
+    for name in method_name:
+        print(name)
+        df = pd.read_csv(f"./0516/result_{name}/test/all_epo.csv")
+        print_metric(df)
+        plt.plot(df["epo"][2 * sm_size:,], 
+                  smooth(df['avg_r'].to_list(), sm = sm_size), 
+                  label = name)
+    plt.tick_params(labelsize=14) # 坐标轴字体
+    # plt.savefig('./0516/result1.jpg') # 先save再show；反之保存的图片为空
+    plt.legend()
+    plt.show()
+    
 
 
-co_all_epo_drop_random = co_all_epo[(co_all_epo['epo'] >= start_train)]
-co_all_epo_drop_random.to_csv(f"{record_dir}/all_collision_record.csv", index = False)
-print("epo count after train ", len(co_all_epo_drop_random) )
-analysis = co_all_epo_drop_random['collision_reason'].value_counts()
-print(analysis) # 统计每一类 collision_reason 的个数
-if 'no collision' in analysis.index:
-    print('no collision % ', analysis['no collision']/len(co_all_epo_drop_random))
-if 'unknown' in analysis.index:
-    print('unknown % ', analysis['unknown']/len(co_all_epo_drop_random))
-if 'hit leading vehicle' in analysis.index:
-    print('hit leading vehicle % ', analysis['hit leading vehicle']/len(co_all_epo_drop_random))
-if 'change lane collision' in analysis.index:
-    print('change lane collision % ', analysis['change lane collision']/len(co_all_epo_drop_random))
-if 'beginning collision' in analysis.index:
-    print('beginning collision % ', analysis['beginning collision']/len(co_all_epo_drop_random))
-
-df_all_epo = pd.merge(df_all_epo, co_all_epo[['epo', 'collision_reason']], on='epo') # 把collision_reason链接到df_all_epo中
-df_all_epo.to_csv(f"{record_dir}/all_final_record.csv", index = False)
-# dis_to_target_lane_mean = df_all_epo[df_all_epo['epo'] > start_train]['dis_to_target_lane'].mean()
-# print("dis_to_target_lane_mean ", dis_to_target_lane_mean)
-
-# del i
-
-
-# 统计最大的 r_safe
-# csv_cnt = len([n for n in os.listdir(record_dir)]) # 统计文件夹下的文件个数
-# min_r_safe = 0
-
-# for i in tqdm(range(csv_cnt-3)): # 减去两个模型保存文件的数量
-#     if os.path.getsize(record_dir) > 0:
-#         one_file = pd.read_csv(f"{record_dir}/df_record_epo_{i}.csv")
-#         one_min = one_file['r_safe'].min()
-#         if one_min < min_r_safe:
-#             min_r_safe = one_min
-
-# print('min_r_safe', min_r_safe)
-#        
-
-if TRAIN:
-    losses = pd.read_csv(f"{record_dir}/losses.csv")
-    losses_cut = losses.iloc[20000:]
-    # plt.plot(losses_cut['0']) # 折线图
-    plt.scatter(losses_cut.index, losses_cut['0'],s=1, alpha=0.05) # 散点图 s点大小 alpha 透明度 
-
-finish_epo = df_all_epo[(df_all_epo['position_y']>3080)]
-
-# 统计模型指标
-print('r_avg', df_all_epo[-1000:]['r_avg'].mean())
-print('position_y', df_all_epo[-1000:]['position_y'].mean())
-if len(df_all_epo) >= 1000:
-    print('finish', len(df_all_epo[-1000:][(df_all_epo[-1000:]['position_y'] > 3080)]), 
-          len(df_all_epo[-1000:][(df_all_epo[-1000:]['position_y'] > 3080)]) / 1000)
-    # print('success lane change', len(df_all_epo[-1000:][(df_all_epo[-1000:]['dis_to_target_lane'] == 0)]),
-    #       len(df_all_epo[-1000:][(df_all_epo[-1000:]['dis_to_target_lane'] == 0)])/ 1000)
-else:
-    print('finish', len(df_all_epo[-1000:][(df_all_epo[-1000:]['position_y'] > 3080)]), 
-          len(df_all_epo[-1000:][(df_all_epo[-1000:]['position_y'] > 3080)]) / len(df_all_epo))
-    # print('success lane change', len(df_all_epo[-1000:][(df_all_epo[-1000:]['dis_to_target_lane'] == 0)]),
-    #       len(df_all_epo[-1000:][(df_all_epo[-1000:]['dis_to_target_lane'] == 0)])/ len(df_all_epo))
-
-# success lane change 在finish_epo的基础上进行统计
-if len(finish_epo) >= 1000:
-    print('success lane change', len(finish_epo[-1000:][(finish_epo[-1000:]['dis_to_target_lane'] == 0)]),
-          len(finish_epo[-1000:][(finish_epo[-1000:]['dis_to_target_lane'] == 0)])/ 1000)
-else:
-    print('success lane change', len(finish_epo[-1000:][(finish_epo[-1000:]['dis_to_target_lane'] == 0)]),
-          len(finish_epo[-1000:][(finish_epo[-1000:]['dis_to_target_lane'] == 0)])/ len(finish_epo))
 
 
