@@ -470,7 +470,7 @@ class PDQNAgent(nn.Module):
             elementwise_loss = self.loss_func(y_predicted, target) 
             loss_actor = torch.mean(elementwise_loss * weights)
         else:
-            loss_actor = self.loss_func(y_predicted, y_predicted)   # loss 是torch.Tensor的形式
+            loss_actor = self.loss_func(y_predicted, target)   # loss 是torch.Tensor的形式
         ret_loss_actor = loss_actor.detach().cpu().numpy()
 
         self.actor_optimizer.zero_grad()
