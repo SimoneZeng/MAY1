@@ -5,7 +5,7 @@ Created on Tue May  16 10:34:40 2023
 统计pdqn 的训练和测试结果
 
 包括 6 和 宏观指标， 3 个微观指标
-AvgA-C average affection times 还没有计算
+TRAIN 中的 （1）AvgA-C average affection times （2）TTC 还没有计算
 
 @author: Simone
 """
@@ -116,16 +116,16 @@ def get_df_all_epo(record_dir):
                     epo_analysis['lane_change_times'] += lane_change_cnt['right']
                 # 宏观 6
                 epo_analysis['affect_times'] = 0
-                # epo_analysis['affect_times'] = len(new_one_file[(new_one_file['tail_car_acc'] >= 0.5)].index.tolist())
+                if not TRAIN:
+                    epo_analysis['affect_times'] = len(new_one_file[(new_one_file['tail_car_acc'] >= 0.5)].index.tolist())
                 
-                # 微观 1
-                # 筛选 ttc 在 0~50的数据
-                #epo_ttc = new_one_file[(new_one_file['ttc'] > 0) & (new_one_file['ttc'] <= 50)]
-            
-                
+                # 微观 1             
                 epo_analysis['avg_ttc'] = 0
-                # if len(epo_ttc) > 0:
-                #     epo_analysis['avg_ttc'] = epo_ttc['ttc'].mean()
+                if not TRAIN:
+                # 筛选 ttc 在 0~50的数据
+                    epo_ttc = new_one_file[(new_one_file['ttc'] > 0) & (new_one_file['ttc'] <= 50)]
+                    if len(epo_ttc) > 0:
+                        epo_analysis['avg_ttc'] = epo_ttc['ttc'].mean()
                 # 微观 2
                 epo_analysis['avg_velocity'] = new_one_file['speed'].mean()
                 # 微观 3
@@ -197,35 +197,37 @@ if __name__ == '__main__':
         - AvgV-A
         - AvgJ-A
     '''
-    # df_all_epo = get_df_all_epo(record_dir)
-    # df_all_epo.to_csv(f"{record_dir}/all_epo.csv", index = False)
+    if TRAIN:
+        df_all_epo = get_df_all_epo(record_dir)
+        df_all_epo.to_csv(f"{record_dir}/all_epo.csv", index = False)
+    
+    # df_all_epo = pd.read_csv(f"./0516/result_pdqn_5l_rainbow_linear_mp/all_epo.csv")
     # print_metric(df_all_epo)
     # draw_epo_reward(df_all_epo, sm_size = 10)
     
-    # method_name = ['pdqn_5l_linear_mp', 'pdqn_5l_cl2_rg_rainbow_linear_mp', 
+    # method_name = ['pdqn_5l_linear_mp',  'pdqn_5l_rainbow_linear_mp', 
+    #                'pdqn_5l_cl2_rg_rainbow_linear_mp', 
     #                 'pdqn_5l_cl2_rainbow_linear_mp', 'pdqn_5l_ccl2_rainbow_linear_mp',
     #                 'pdqn_5l_cl1_rg_rainbow_linear_mp', 'pdqn_5l_cl1_rainbow_linear_mp',
     #                 'pdqn_5l_ccl1_rainbow_linear_mp']
-    method_name = ['pdqn_5l_lstm_bs_mp', 'pdqn_5l_lstm_bs_mp_1']
     
+    # sm_size = 50
     
-    sm_size = 100
+    # plt.figure(figsize=(24,12))
+    # plt.xlabel("epo", fontsize=14) # x y轴含义
+    # plt.ylabel("average reward per episode", fontsize=14) 
     
-    plt.figure(figsize=(16,8))
-    plt.xlabel("epo", fontsize=14) # x y轴含义
-    plt.ylabel("average reward per episode", fontsize=14) 
-    
-    for name in method_name:
-        print(name)
-        df = pd.read_csv(f"./result_{name}/all_epo.csv")
-        print_metric(df)
-        plt.plot(df["epo"][2 * sm_size:,], 
-                  smooth(df['avg_r'].to_list(), sm = sm_size), 
-                  label = name)
-    plt.tick_params(labelsize=14) # 坐标轴字体
-    # plt.savefig('./0516/result1.jpg') # 先save再show；反之保存的图片为空
-    plt.legend()
-    plt.show()
+    # for name in method_name:
+    #     print(name)
+    #     df = pd.read_csv(f"./0516/result_{name}/all_epo.csv")
+    #     # print_metric(df)
+    #     plt.plot(df["epo"][2 * sm_size:,], 
+    #               smooth(df['avg_r'].to_list(), sm = sm_size), 
+    #               label = name)
+    # plt.tick_params(labelsize=14) # 坐标轴字体
+    # # plt.savefig('./0516/result1.jpg') # 先save再show；反之保存的图片为空
+    # plt.legend()
+    # plt.show()
     
 
 
