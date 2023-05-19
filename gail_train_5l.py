@@ -7,30 +7,17 @@ Created on May Thu 4 22:19:26 2023
 
 stage设计：
 reward一样，每个stage都有r_tl，切换时stage区别跨度较小
-    - 3条车道是target lanes，车辆密度为低
-    - 2条车道是target lanes，车辆密度为低
-    - 1条车道是target lanes，车辆密度为低
-    - 随机target dir，车辆密度为低
-    - 随机target dir，车辆密度为中
-    - 随机target dir，车辆密度为高
+    - 一共5条lane，模拟2条lane，低车流密度，车道编码不变，中间车道都是车
+    - 一共5条lane，低车流密度
+    - 一共5条lane，中车流密度
+    - 一共5条lane，高车流密度
 
 reward权重：
     - efficiency [0, 1]
     - safe [-2, 0]
     - comfort [-1, 0]
     - tl [-2, 0]
-使用rainbow_linear模型，使用 rule-based guidance
-之前的 rule 忘记存 bad action了
 
-（1）每个 timestep 都有一个 ToTL in {llc,rlc, lk} ，表示往 TL 的变道方向
-（2）rule-based guidance 使用场景：
-    - 距离 intersection 2a-a 的距离时，not suitable to leave a target lane
-    - 距离 intersection a-0 的距离时，urgent need to act as 𝑇𝑜𝑇 𝐿
-
-（3）RG 为 True 时，并且当ToTL 是 llc 或者 rlc 时，
-    - 判断 ToTLclean，即变道方向是否clean
-    - ToTL侧方有车时，不能变道
-    
 @author: Simone
 """
 
@@ -47,9 +34,9 @@ import math
 import pprint as pp
 import multiprocessing as mp
 from multiprocessing import Process, Queue, Pipe, connection, Lock
-curPath=os.path.abspath(os.path.dirname(__file__))
-rootPath=os.path.split(os.path.split(curPath)[0])[0]
-sys.path.append(rootPath+'/sumo_test01')
+# curPath=os.path.abspath(os.path.dirname(__file__))
+# rootPath=os.path.split(os.path.split(curPath)[0])[0]
+# sys.path.append(rootPath+'/sumo_test01')
 
 #from model.pdqn_model_5tl_lstm import PDQNAgent
 from model.pdqn_model_5tl_rainbow_linear import PDQNAgent
@@ -58,9 +45,9 @@ from model.pdqn_model_5tl_rainbow_linear import PDQNAgent
 # 引入地址 
 sumo_path = os.environ['SUMO_HOME'] # "D:\\sumo\\sumo1.13.0"
 # sumo_dir = "C:\--codeplace--\sumo_inter\sumo_test01\sumo\\" # 1.在本地用这个cfg_path
-#sumo_dir = "D:\Git\MAY1\sumo\\" # 1.在本地用这个cfg_path
-sumo_dir = "/data1/zengximu/sumo_test01/sumo/" # 2. 在服务器上用这个cfg_path
-OUT_DIR="result_pdqn_5l_cl2_rg_rainbow_linear_mp"
+sumo_dir = "D:\Git\MAY1\sumo\\" # 1.在本地用这个cfg_path
+# sumo_dir = "/data1/zengximu/sumo_test01/sumo/" # 2. 在服务器上用这个cfg_path
+OUT_DIR="result_pdqn_5l_gail"
 sys.path.append(sumo_path)
 sys.path.append(sumo_path + "/tools")
 sys.path.append(sumo_path + "/tools/xml")
@@ -68,7 +55,7 @@ import traci # 在ubuntu中，traci和sumolib需要在tools地址引入之后imp
 from sumolib import checkBinary
 
 TRAIN = True # False True
-gui = False # False True # 是否打开gui
+gui = True # False True # 是否打开gui
 if gui == 1:
     sumoBinary = checkBinary('sumo-gui')
 else:
@@ -85,8 +72,9 @@ torch.manual_seed(5)
 
 # PRE_LANE = None
 RL_CONTROL = 1100 # Rl agent take control after 1100 meters
+RL_AGENT = False
 UPDATE_FREQ = 100 # model update frequency for multiprocess
-DEVICE = torch.device("cuda:3")
+DEVICE = torch.device("cuda:0")
 # DEVICE = torch.device("cpu")
 
 def get_all(control_vehicle, select_dis):
@@ -262,10 +250,9 @@ def get_all(control_vehicle, select_dis):
 
 def train(worker, lock, traj_q, agent_q, control_vehicle, episode, target_dir, CL_Stage):
     '''
-    - get_all获得周围信息和动作信息
-    - choose_action 得到返回动作 ret_action_lc_int, ret_action_acc
+    - 根据不同stage以及get_all中ego所在lane，修改其target lanes
+    - choose_action 得到动作 change_lane, action_acc
     - 记录pre数据
-    - rule-based guidance 获得ToTL，RG和ToTLclean修改change_lane, action_acc
     - 根据 change_lane判断是否撞墙，若撞墙，结束回合
     - 根据change_lane, action_acc变道变速
     - 执行，simulateionStep
@@ -282,28 +269,27 @@ def train(worker, lock, traj_q, agent_q, control_vehicle, episode, target_dir, C
     global df_record
     stage = CL_Stage # 当前train是在哪个CL的stage
     
-    # 1. get_all获得周围信息和动作信息
-    detect_dis = 200 # ego车辆的探测距离
-    all_vehicle, rel_up, v_dict = get_all(control_vehicle, detect_dis)
+    # 1. 根据不同stage以及get_all中ego所在lane，修改其target lanes
+    all_vehicle, rel_up, v_dict = get_all(control_vehicle, 200)
     print("$ v_dict", v_dict)
     
     # target_dir_inits 编码
     tl_list = [[0,1,0,0,0,0,1], [1,1,0,1,1,1,0], [1,0,1,1,0,0,0]] # 0 是前方右转，1是直行，2是前方左转
     tl_code = tl_list[target_dir] # 根据target_dir获得对应direction的tl_code
     
-    # 2. choose_action 得到返回动作 ret_action_lc_int, ret_action_acc
+    # 2. choose_action 得到动作 change_lane, action_acc
     if TRAIN:
-        ret_action_lc_int, ret_action_acc, all_action_parameters = worker.choose_action(np.array(all_vehicle), tl_code) # 返回离散lane change ，连续acc，参数
+        action_lc_int, action_acc, all_action_parameters = worker.choose_action(np.array(all_vehicle), tl_code) # 离散lane change ，连续acc，参数
     else:
-        ret_action_lc_int, ret_action_acc, all_action_parameters = worker.choose_action(np.array(all_vehicle), tl_code, train = False)
+        action_lc_int, action_acc, all_action_parameters = worker.choose_action(np.array(all_vehicle), tl_code, train = False)
     
     inf = -10 # 撞墙惩罚
     inf_car = -10 # 撞车惩罚
     done = 0 # 回合结束标志
     
     action_change_dict = {0: 'left', 1: 'keep', 2:'right'}
-    ret_change_lane = action_change_dict[ret_action_lc_int] # 0车道右车道在-8.0；1车道在-4.8；2车道左车道在-1.6
-        
+    change_lane = action_change_dict[action_lc_int] # 0车道右车道在-8.0；1车道在-4.8；2车道左车道在-1.6
+    
     # 3. 记录pre数据
     pre_ego_info_dict = {"speed": traci.vehicle.getSpeed(control_vehicle), 
                          "acc":traci.vehicle.getAcceleration(control_vehicle), 
@@ -315,91 +301,20 @@ def train(worker, lock, traj_q, agent_q, control_vehicle, episode, target_dir, C
     
     get_all_info = [] # 记录与前后车的距离
     get_all_info.append('v_dict')
-    
-    # ego距离6个方向车的纵向距离，初始化为最远的detect_dis
-    dis_to_up = detect_dis
-    dis_to_upright = detect_dis
-    dis_to_upleft = detect_dis
-    dis_to_down = detect_dis
-    dis_to_downright = detect_dis
-    dis_to_downleft = detect_dis
-
     if v_dict['up'] != '':
-        dis_to_up = traci.vehicle.getPosition(v_dict['up'])[0] - pre_ego_info_dict['position'][0]
-        get_all_info.append(("up", v_dict['up'], dis_to_up))
+        get_all_info.append(("up", v_dict['up'], traci.vehicle.getPosition(v_dict['up'])[0] - pre_ego_info_dict['position'][0]))
     if v_dict['upright'] != '':
-        dis_to_upright = traci.vehicle.getPosition(v_dict['upright'])[0] - pre_ego_info_dict['position'][0]
-        get_all_info.append(("upright", v_dict['upright'], dis_to_upright))
+        get_all_info.append(("upright", v_dict['upright'], traci.vehicle.getPosition(v_dict['upright'])[0] - pre_ego_info_dict['position'][0]))
     if v_dict['upleft'] != '':
-        dis_to_upleft = traci.vehicle.getPosition(v_dict['upleft'])[0] - pre_ego_info_dict['position'][0]
-        get_all_info.append(("upleft", v_dict['upleft'], dis_to_upleft))
+        get_all_info.append(("upleft", v_dict['upleft'], traci.vehicle.getPosition(v_dict['upleft'])[0] - pre_ego_info_dict['position'][0]))
     if v_dict['down'] != '':
-        dis_to_down = pre_ego_info_dict['position'][0] - traci.vehicle.getPosition(v_dict['down'])[0]
-        get_all_info.append(("down", v_dict['down'], dis_to_down))
+        get_all_info.append(("down", v_dict['down'], pre_ego_info_dict['position'][0] - traci.vehicle.getPosition(v_dict['down'])[0]))
     if v_dict['downright'] != '':
-        dis_to_downright = pre_ego_info_dict['position'][0] - traci.vehicle.getPosition(v_dict['downright'])[0]
-        get_all_info.append(("downright", v_dict['downright'], dis_to_downright))
+        get_all_info.append(("downright", v_dict['downright'], pre_ego_info_dict['position'][0] - traci.vehicle.getPosition(v_dict['downright'])[0]))
     if v_dict['downleft'] != '':
-        dis_to_downleft = pre_ego_info_dict['position'][0] - traci.vehicle.getPosition(v_dict['downleft'])[0]
-        get_all_info.append(("downleft", v_dict['downleft'], dis_to_downleft))
-
-    # 4. rule-based guidance
-    ego_laneInt = int(pre_ego_info_dict["LaneID"][-1]) # 从左到右是 4 3 2 1 0
-    ToTL = None
-    if target_dir == 0: # 前方需要右转
-        if ego_laneInt != 0:
-            ToTL = 2 # right lc
-        else:
-            ToTL = 1 # lane keeping
-    elif target_dir == 1: # 前方需要直行
-        if ego_laneInt == 0:
-            ToTL = 0 # left lc
-        elif ego_laneInt == 4:
-            ToTL = 2
-        else:
-            ToTL = 1
-    elif target_dir == 2: # 前方需要左转
-        if ego_laneInt in [0, 1, 2]:
-            ToTL = 0
-        else:
-            ToTL = 1
-    
-    RG = False
-    dis_a = 200 # 距离intersection分距离的rule
-    v_length = 5 # 车身长度
-    # 在 ret_action_lc_int 与 ToTL 不一致的情况下，执行分距离的RG
-    if ret_action_lc_int != ToTL:
-        # 距离 intersection 2a ~ a
-        if pre_ego_info_dict['position'][0] >= 3100 - 2 * dis_a and pre_ego_info_dict['position'][0] < 3100 - dis_a:
-            RG = True
-        # 距离 intersection a ~ 0
-        elif pre_ego_info_dict['position'][0] >= 3100 - dis_a:
-            RG = True
-    
-    # 在RG为True 的情况下，判断是否 ToTLclean
-    ToTLclean = False
-    if RG == True:
-        # left lc
-        if ToTL == 0 and dis_to_upleft >= 2 * v_length and dis_to_downleft >= 2 * v_length:
-            ToTLclean = True
-        # right lc
-        if ToTL == 2 and dis_to_upright >= 2 * v_length and dis_to_downright >= 2 * v_length:
-            ToTLclean = True
-    
-    # 在 RG 和 ToTLclean 同时成立的情况下，修正动作；否则，使用模型返回的动作
-    if RG == True and ToTLclean == True:
-        action_lc_int = ToTL
-        action_acc = all_action_parameters[action_lc_int]
-        change_lane = action_change_dict[action_lc_int]
-    else:
-        action_lc_int = ret_action_lc_int
-        action_acc = ret_action_acc
-        change_lane = ret_change_lane
-    
-    get_all_info.append((('RG', RG), ('ToTLclean', ToTLclean), ('ToTL', ToTL), ('ret_action_lc_int', ret_action_lc_int),
-                        ('ret_action_acc', ret_action_acc), ('ret_change_lane', ret_change_lane)))
-    
-    # 5. 根据 change_lane判断是否撞墙，若撞墙，结束回合
+        get_all_info.append(("downleft", v_dict['downleft'], pre_ego_info_dict['position'][0] - traci.vehicle.getPosition(v_dict['downleft'])[0]))
+            
+    # 4. 根据 change_lane判断是否撞墙，若撞墙，结束回合
     collision=0
     loss_actor = 0
     Q_loss = 0
@@ -438,7 +353,7 @@ def train(worker, lock, traj_q, agent_q, control_vehicle, episode, target_dir, C
         print("====================左左左左车道撞墙墙墙墙===================")
         return collision, loss_actor, Q_loss
     
-    # 6. 根据change_lane, action_acc变道变速
+    # 5. 根据change_lane, action_acc变道变速
     # 计算速度，没有限速控制
     sp = traci.vehicle.getSpeed(control_vehicle) + action_acc*0.5 # 0.5s simulate一次
     traci.vehicle.setSpeed(control_vehicle, sp) # 将速度设置好
@@ -464,16 +379,17 @@ def train(worker, lock, traj_q, agent_q, control_vehicle, episode, target_dir, C
         elif '4' in pre_ego_info_dict["LaneID"]:
             traci.vehicle.moveTo(control_vehicle, 'EA_3', traci.vehicle.getLanePosition(control_vehicle))    
     
-    # 7. 执行
+    # 6. 执行
     # ================================执行 ==================================
     traci.simulationStep()
     train_step = worker._step
     print("\t ################ 执行 ###################")
     print(f"\t ====== worker_step:{worker._step} learner_step:{worker._learn_step} target_dir:{target_dir} ======")
     
-    # 8. 记录cur数据
+    # 7. 记录cur数据
     new_all_vehicle, new_rel_up, new_v_dict = get_all(control_vehicle, 200)
     print("$ new_v_dict", new_v_dict)
+    # print("\t ", new_v_dict)
 
     cur_ego_info_dict = {"speed": traci.vehicle.getSpeed(control_vehicle), 
                      "acc":traci.vehicle.getAcceleration(control_vehicle), 
@@ -481,10 +397,11 @@ def train(worker, lock, traj_q, agent_q, control_vehicle, episode, target_dir, C
                      # "LaneIndex": traci.vehicle.getLaneIndex(control_vehicle), 
                      "position": traci.vehicle.getPosition(control_vehicle)}
     
+    # print("cur_ego_info_dict", cur_ego_info_dict)
     print("$ cur_ego_info_dict")
     pp.pprint(cur_ego_info_dict, indent = 5)
     
-    # 9. 计算reward
+    # 8. 计算reward
     e = 0.000001 # 避免分母为0
     if 0 <= new_rel_up['relspeed'] < e:
         new_rel_up['relspeed'] = e
@@ -498,8 +415,8 @@ def train(worker, lock, traj_q, agent_q, control_vehicle, episode, target_dir, C
     else:
         r_efficiency = cur_ego_info_dict['speed'] / max_speed
     
-    if 0 < y_ttc < 8: 
-        r_safe = np.log(y_ttc/8)
+    if 0 < y_ttc < 4: 
+        r_safe = np.log(y_ttc/4)
     else:
         r_safe = 0
     
@@ -547,20 +464,8 @@ def train(worker, lock, traj_q, agent_q, control_vehicle, episode, target_dir, C
         get_all_info.append(("downleft", new_v_dict['downleft'], cur_ego_info_dict['position'][0] - traci.vehicle.getPosition(new_v_dict['downleft'])[0]))
     
     cur_reward = r_safe + r_efficiency - r_comfort + r_fluc + r_tl * 2
-    # 计算 bad action 的 bad reward，并存储 transition
-    if RG == True and ToTLclean == True:
-        bad_reward = cur_reward - 0.5 * abs(action_lc_int - ret_action_lc_int) - abs(action_acc-ret_action_acc)
-        done = 1
-        traj_q.put((deepcopy(all_vehicle), deepcopy(tl_code), deepcopy(ret_action_lc_int), deepcopy(all_action_parameters),
-                bad_reward, deepcopy(np.zeros((7,3))), deepcopy(tl_code), done), block=True, timeout=None)
-        df_record = df_record.append(pd.DataFrame([[stage,episode, train_step, cur_ego_info_dict['position'][0], 
-                                                    target_dir, cur_ego_info_dict['LaneID'], 
-                                                    cur_ego_info_dict['speed'], action_lc_int, cur_ego_info_dict['acc'], ret_action_lc_int, ret_change_lane,
-                                                    bad_reward, 0, 0, 0, 0, 0, get_all_info, done, 
-                                                    all_vehicle, np.zeros((7,3))]], columns = cols))
-        done = 0 # 改成 0 继续跑，否则 revised action中的done 也会是1
     
-    # 10. 查询自动驾驶车是否发生碰撞
+    # 9. 查询自动驾驶车是否发生碰撞
     collision=0
     loss_actor = 0
     Q_loss = 0
@@ -668,14 +573,14 @@ def main_train():
     # (1) 区分train和test的参数设置，以及output位置
     if not TRAIN:
         episode_num = 400 # test的episode上限
-        CL_Stage = 6 # test都在最后一个stage进行
+        CL_Stage = 4 # test都在最后一个stage进行
         worker.load_state_dict(torch.load(f"{OUT_DIR}/net_params.pth", map_location=DEVICE))
         globals()['RL_CONTROL']=1100
         globals()['OUT_DIR']=f"./{OUT_DIR}/test"
     else:
         episode_num = 20000 # train的episode上限
-        CL_Stage = 1 # train从stage 1 开始
-        # CL_Stage = 6
+        #CL_Stage = 1 # train从stage 1 开始
+        CL_Stage = 4
         if os.path.exists(f"./model_params/{OUT_DIR}_net_params.pth"): #load pre-trained model params for further training
             worker.load_state_dict(torch.load(f"./model_params/{OUT_DIR}_net_params.pth", map_location=DEVICE)) 
     
@@ -692,25 +597,22 @@ def main_train():
         target_dir_init = None # 初始的target_dir，目标转向方向
         
         # (3) 根据不同的CL_Stage启动对应的sumoCmd
-        if CL_Stage in [1, 2, 3, 4]:
-            cfg_path = f"{sumo_dir}cfg_CL2_low.sumocfg"
-        elif CL_Stage == 5:
-            cfg_path = f"{sumo_dir}cfg_CL2_mid.sumocfg"
-        elif CL_Stage == 6:
-            cfg_path = f"{sumo_dir}cfg_CL2_high.sumocfg"
+        # stage 1 在5车道中模拟2车道，之后的stage都是5车道
+        #cfg_path = f"{sumo_dir}cfg_CL1_s{CL_Stage}.sumocfg"
+        cfg_path = f"{sumo_dir}cfg_CL2_high_split.sumocfg"
         sumoCmd = [sumoBinary, "-c", cfg_path, "--log", f"{OUT_DIR}/logfile_{CL_Stage}.txt"]
         traci.start(sumoCmd)
         ego_index = 5 + epo % 20   # 选取随机车道第index辆出发的车为我们的自动驾驶车
-        ego_index_str = str(np.random.randint(0,5)) + '_' + str(ego_index) # ego的id为'1_$index$', 如index为20,id='1_20'
-        
-        if CL_Stage == 1:
-            target_dir_init = 1 # 3条target lanes， target_dir为直行
-        elif CL_Stage == 2:
-            target_dir_init = 2 # 2条target lanes， target_dir为左转
-        elif CL_Stage == 3:
-            target_dir_init = 0 # 1条target lanes， target_dir为右转
-        elif CL_Stage in [4, 5, 6]:
-            target_dir_init = random.randint(0, 2) # 随机target_dir
+        if CL_Stage == 1:            
+            departLane=np.random.choice([0,1,3,4]) # 除2车道外，随机初始ego的lane
+            ego_index_str = str(departLane) + '_' + str(ego_index)
+            if departLane == 0 or departLane == 1: # 根据ego生成的位置赋予target_dir_init
+                target_dir_init = random.randint(0, 1)
+            else:
+                target_dir_init = random.randint(1, 2)
+        else:
+            ego_index_str = str(np.random.randint(0,5)) + '_' + str(ego_index) # ego的id为'1_$index$', 如index为20,id='1_20'
+            target_dir_init = random.randint(0, 2) # ego的变道方向，从0 1 2中取
             
         control_vehicle = '' # ego车辆的id
         ego_show = False # ego车辆是否出现过
@@ -725,6 +627,10 @@ def main_train():
         while traci.simulation.getMinExpectedNumber() > 0:
             # 1. 得到道路上所有的车辆ID
             vehicle_list = traci.vehicle.getIDList()
+            if CL_Stage == 1:
+                for v in vehicle_list:
+                    if traci.vehicle.getTypeID(v) == 'CarA':
+                        traci.vehicle.setLaneChangeMode(v, 0b000000000000) # 2车道的车不能变道，其他车道的车可以变道
             
             # 2. 找到我们控制的自动驾驶车辆
             # 2.1 如果此时自动驾驶车辆已出现，设置其为绿色, id为'1_$ego_index$'
@@ -743,7 +649,7 @@ def main_train():
             
             # 3 在非RL控制路段中采取其他行驶策略，控制的路段为RL_CONTROL-3100这2000m的距离
             # 3.1 在0-RL_CONTROLm是去掉模拟器自带算法中的变道，但暂时保留速度控制
-            traci.vehicle.setLaneChangeMode(control_vehicle, 0b000000000000)
+            #traci.vehicle.setLaneChangeMode(control_vehicle, 0b000000000000)
             # print("自动驾驶车的位置====================", traci.vehicle.getPosition(control_vehicle)[0])     
             if traci.vehicle.getPosition(control_vehicle)[0] < RL_CONTROL:
                 traci.simulationStep()
@@ -761,10 +667,18 @@ def main_train():
     
             # 4.3 去除自动驾驶车默认的跟车和换道模型，为模型训练做准备
             traci.vehicle.setSpeedMode(control_vehicle, 00000)
-            traci.vehicle.setLaneChangeMode(control_vehicle, 0b000000000000)
+            #traci.vehicle.setLaneChangeMode(control_vehicle, 0b000000000000)
             
             # 5 模型训练
-            collision, loss_actor, _ = train(worker, lock, traj_q, agent_q, control_vehicle, epo,  target_dir_init, CL_Stage) # 模拟一个时间步
+            collision, loss_actor = None, None
+            if target_dir_init == 0:
+                traci.vehicle.changeTarget(control_vehicle, 'ED')
+            elif target_dir_init == 1:
+                traci.vehicle.changeTarget(control_vehicle, 'EC')
+            else:
+                traci.vehicle.changeTarget(control_vehicle, 'EB')
+            traci.simulationStep()
+            #collision, loss_actor, _ = train(worker, lock, traj_q, agent_q, control_vehicle, epo,  target_dir_init, CL_Stage) # 模拟一个时间步
             if collision:
                 truncated = True
                 break
@@ -787,15 +701,9 @@ def main_train():
             elif CL_Stage == 3:
                 CL_Stage = 4
                 switch_cnt = 0
-            elif CL_Stage == 4:
-                CL_Stage = 5
-                switch_cnt = 0
-            elif CL_Stage == 5:
-                CL_Stage = 6
-                switch_cnt = 0
-            # elif CL_Stage == 6:
+            # elif CL_Stage == 4:
             #     CL_Stage = 1
-            #     swicth_cnt = 0
+            #     switch_cnt = 0
 
         losses_episode.clear()
         

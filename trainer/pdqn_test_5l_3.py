@@ -47,7 +47,7 @@ sumo_path = os.environ['SUMO_HOME'] # "D:\\sumo\\sumo1.13.0"
 # sumo_dir = "C:\--codeplace--\sumo_inter\sumo_test01\sumo\\" # 1.在本地用这个cfg_path
 # sumo_dir = "D:\Git\MAY1\sumo\\" # 1.在本地用这个cfg_path
 sumo_dir = "/data1/zengximu/sumo_test01/sumo/" # 2. 在服务器上用这个cfg_path
-OUT_DIRs=["../0516/result_pdqn_5l_ccl1_rainbow_linear_mp","../0516/result_pdqn_5l_ccl2_rainbow_linear_mp"]
+OUT_DIRs=["../0516/result_pdqn_5l_rg2_rainbow_linear_mp"]
 OUT_DIR=""
 sys.path.append(sumo_path)
 sys.path.append(sumo_path + "/tools")
@@ -414,8 +414,8 @@ def train(agent, control_vehicle, episode, target_dir, CL_Stage):
     else:
         r_efficiency = cur_ego_info_dict['speed'] / max_speed
     
-    if 0 < y_ttc < 4: 
-        r_safe = np.log(y_ttc/4)
+    if 0 < y_ttc < 8: 
+        r_safe = np.log(y_ttc/8)
     else:
         r_safe = 0
     
@@ -582,7 +582,7 @@ def main_train():
         # (1) 区分train和test的参数设置，以及output位置
         episode_num = 400 # test的episode上限
         CL_Stage = 4 # test都在最后一个stage进行
-        agent.load_state_dict(torch.load(f"{out_dir}/net_params.pth", map_location=DEVICE)) 
+        agent.load_state_dict(torch.load(f"{out_dir}/150000_net_params.pth", map_location=DEVICE)) 
         globals()['RL_CONTROL']=1100
         globals()['OUT_DIR']=f"{out_dir}/test" 
         

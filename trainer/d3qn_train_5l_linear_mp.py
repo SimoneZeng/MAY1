@@ -61,7 +61,7 @@ else:
     sumoBinary = checkBinary('sumo')
 
 cols = ['stage','epo', 'train_step', 'position_y', 'target_direc', 'lane', 'speed', 
-         'lc_int', 'fact_acc', 'acc', 'change_lane', 'r','r_safe', 'r_eff',
+         'lc_int', 'fact_acc', 'acc', 'change_lane', 'ttc', 'tail_car_acc','r','r_safe', 'r_eff',
          'r_com', 'r_tl', 'r_fluc','other_record', 'done', 's', 's_']
 df_record = pd.DataFrame(columns = cols) # 存储transition等信息的dataframe，每个epo建立一个dataframe
 
@@ -348,6 +348,7 @@ def train(worker, lock, traj_q, agent_q, control_vehicle, episode, target_dir, C
         df_record = df_record.append(pd.DataFrame([[stage,episode, train_step, pre_ego_info_dict['position'][0], 
                                                     target_dir, pre_ego_info_dict['LaneID'], 
                                                     pre_ego_info_dict['speed'], action_int, pre_ego_info_dict['acc'], acc_param, change_lane, 
+                                                    inf, traci.vehicle.getAcceleration(v_dict['down']) if v_dict['down'] != '' else inf,  
                                                     inf, 0, 0, 0, 0, 0, 0, done, all_vehicle, np.zeros((7,3))]], columns = cols))
         print("====================右右右右车道撞墙墙墙墙===================")
         return collision, Q_loss
@@ -365,6 +366,7 @@ def train(worker, lock, traj_q, agent_q, control_vehicle, episode, target_dir, C
         df_record = df_record.append(pd.DataFrame([[stage,episode, train_step, pre_ego_info_dict['position'][0], 
                                                     target_dir, pre_ego_info_dict['LaneID'], 
                                                     pre_ego_info_dict['speed'], action_int, pre_ego_info_dict['acc'], acc_param, change_lane, 
+                                                    inf, traci.vehicle.getAcceleration(v_dict['down']) if v_dict['down'] != '' else inf,  
                                                     inf, 0, 0, 0, 0, 0, 0, done, all_vehicle, np.zeros((7,3))]], columns = cols))
         print("====================左左左左车道撞墙墙墙墙===================")
         return collision, Q_loss
@@ -489,6 +491,7 @@ def train(worker, lock, traj_q, agent_q, control_vehicle, episode, target_dir, C
         print("==========================发生了撞车=========================")
         if control_vehicle == traci.simulation.getCollidingVehiclesIDList()[1]:
             print("与前方车辆撞")
+            y_ttc = 0
             another_co_id = traci.simulation.getCollidingVehiclesIDList()[0]
         elif control_vehicle == traci.simulation.getCollidingVehiclesIDList()[0]:
             print("与后方车辆撞")
@@ -511,6 +514,7 @@ def train(worker, lock, traj_q, agent_q, control_vehicle, episode, target_dir, C
         df_record = df_record.append(pd.DataFrame([[stage,episode, train_step, cur_ego_info_dict['position'][0], 
                                             target_dir, cur_ego_info_dict['LaneID'], 
                                             cur_ego_info_dict['speed'], action_int, cur_ego_info_dict['acc'], acc_param, change_lane, 
+                                            y_ttc, traci.vehicle.getAcceleration(v_dict['down']) if v_dict['down'] != '' else inf,  
                                             inf_car, r_safe, r_efficiency, r_comfort, r_tl, r_fluc, get_all_info, done, 
                                             all_vehicle, new_all_vehicle]], columns = cols))
         return collision, Q_loss
@@ -525,6 +529,7 @@ def train(worker, lock, traj_q, agent_q, control_vehicle, episode, target_dir, C
     df_record = df_record.append(pd.DataFrame([[stage,episode, train_step, cur_ego_info_dict['position'][0], 
                                                 target_dir, cur_ego_info_dict['LaneID'], 
                                                 cur_ego_info_dict['speed'], action_int, cur_ego_info_dict['acc'], acc_param, change_lane,
+                                                y_ttc, traci.vehicle.getAcceleration(v_dict['down']) if v_dict['down'] != '' else inf,  
                                                 cur_reward, r_safe, r_efficiency, r_comfort, r_tl, r_fluc, get_all_info, done, 
                                                 all_vehicle, new_all_vehicle]], columns = cols))
     

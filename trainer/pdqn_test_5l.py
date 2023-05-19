@@ -414,8 +414,8 @@ def train(agent, control_vehicle, episode, target_dir, CL_Stage):
     else:
         r_efficiency = cur_ego_info_dict['speed'] / max_speed
     
-    if 0 < y_ttc < 4: 
-        r_safe = np.log(y_ttc/4)
+    if 0 < y_ttc < 8: 
+        r_safe = np.log(y_ttc/8)
     else:
         r_safe = 0
     
