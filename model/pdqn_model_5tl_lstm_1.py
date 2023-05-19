@@ -229,12 +229,13 @@ class PDQNAgent(nn.Module):
                 state = torch.tensor(state, device=self.device)
                 tl_code = torch.tensor(tl_code, device=self.device)
                 all_action_parameters = self.param.forward(state, tl_code, init_hidden) # 1*3 维连续 param
+                random_action = None
                 print("Network output -- all_action_param: ",all_action_parameters)
                 
                 if self._epsilon > np.random.random(): # 探索率随着迭代次数增加而减小
                     # if self._step < self.batch_size:    
                     if self._step < self.minimal_size: # 开始学习前，变道随机，acc随机
-                        action = np.random.randint(0, self.num_action) # 离散 action 随机
+                        random_action = np.random.randint(0, self.num_action) # 离散 action 随机
                         all_action_parameters = torch.from_numpy(np.random.uniform(
                             self.action_param_min_numpy, self.action_param_max_numpy)).to(self.device)
                         all_action_parameters = all_action_parameters.unsqueeze(0).to(torch.float32) # np是64的精度，转为32的精度
@@ -248,7 +249,10 @@ class PDQNAgent(nn.Module):
 
                 Q_value = self.actor.forward(state, tl_code, all_action_parameters, init_hidden) # 1*3 维 所有离散动作的Q_value
                 Q_value = Q_value.detach().cpu().numpy() # tensor 转换为 numpy格式
-                action = np.argmax(Q_value)
+                if random_action is None:
+                    action = np.argmax(Q_value)
+                else:
+                    action = random_action
                 all_action_parameters = all_action_parameters.squeeze() # 变为3维 连续 param
                 all_action_parameters = all_action_parameters.cpu().data.numpy()
                 print("After Noise -- all_action_param:", all_action_parameters)

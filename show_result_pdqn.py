@@ -22,7 +22,7 @@ TRAIN = False # True False
  
 # name = 'pdqn_5l_rainbow_linear_mp'
 # record_dir = './0516/result_pdqn_5l_linear_mp'
-record_dir = './0516/result_pdqn_5l_cl1_rainbow_linear_mp/test'
+record_dir = './result_pdqn_5l_lstm_bs_mp'
 # record_dir = './0516'
 
 def get_df_all_epo(record_dir):

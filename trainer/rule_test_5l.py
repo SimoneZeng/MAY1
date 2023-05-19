@@ -47,7 +47,7 @@ sumo_path = os.environ['SUMO_HOME'] # "D:\\sumo\\sumo1.13.0"
 # sumo_dir = "C:\--codeplace--\sumo_inter\sumo_test01\sumo\\" # 1.在本地用这个cfg_path
 # sumo_dir = "D:\Git\MAY1\sumo\\" # 1.在本地用这个cfg_path
 sumo_dir = "/data1/zengximu/sumo_test01/sumo/" # 2. 在服务器上用这个cfg_path
-OUT_DIRs=["../0516/result_pdqn_5l_cl1_rg2_rainbow_linear_mp"]
+OUT_DIRs=["../0516/result_rule_5l"]
 OUT_DIR=""
 sys.path.append(sumo_path)
 sys.path.append(sumo_path + "/tools")
@@ -288,6 +288,7 @@ def train(agent, control_vehicle, episode, target_dir, CL_Stage):
     
     action_change_dict = {0: 'left', 1: 'keep', 2:'right'}
     change_lane = action_change_dict[action_lc_int] # 0车道右车道在-8.0；1车道在-4.8；2车道左车道在-1.6
+    change_lane = 'keep'
     
     # 3. 记录pre数据
     pre_ego_info_dict = {"speed": traci.vehicle.getSpeed(control_vehicle), 
@@ -354,33 +355,41 @@ def train(agent, control_vehicle, episode, target_dir, CL_Stage):
     
     # 5. 根据change_lane, action_acc变道变速
     # 计算速度，没有限速控制
-    sp = traci.vehicle.getSpeed(control_vehicle) + action_acc*0.5 # 0.5s simulate一次
-    traci.vehicle.setSpeed(control_vehicle, sp) # 将速度设置好
-    print('$ speed ', sp)
+    # sp = traci.vehicle.getSpeed(control_vehicle) + action_acc*0.5 # 0.5s simulate一次
+    # traci.vehicle.setSpeed(control_vehicle, sp) # 将速度设置好
+    # print('$ speed ', sp)
     
     # 变道处理
-    if change_lane=='left':
-        if '0' in pre_ego_info_dict["LaneID"]:
-            traci.vehicle.moveTo(control_vehicle, 'EA_1', traci.vehicle.getLanePosition(control_vehicle))
-        elif '1' in pre_ego_info_dict["LaneID"]:
-            traci.vehicle.moveTo(control_vehicle, 'EA_2', traci.vehicle.getLanePosition(control_vehicle))
-        elif '2' in pre_ego_info_dict["LaneID"]:
-            traci.vehicle.moveTo(control_vehicle, 'EA_3', traci.vehicle.getLanePosition(control_vehicle))
-        elif '3' in pre_ego_info_dict["LaneID"]:
-            traci.vehicle.moveTo(control_vehicle, 'EA_4', traci.vehicle.getLanePosition(control_vehicle))
-    elif change_lane=='right':
-        if '1' in pre_ego_info_dict["LaneID"]:
-            traci.vehicle.moveTo(control_vehicle, 'EA_0', traci.vehicle.getLanePosition(control_vehicle))
-        elif '2' in pre_ego_info_dict["LaneID"]:
-            traci.vehicle.moveTo(control_vehicle, 'EA_1', traci.vehicle.getLanePosition(control_vehicle))
-        elif '3' in pre_ego_info_dict["LaneID"]:
-            traci.vehicle.moveTo(control_vehicle, 'EA_2', traci.vehicle.getLanePosition(control_vehicle))
-        elif '4' in pre_ego_info_dict["LaneID"]:
-            traci.vehicle.moveTo(control_vehicle, 'EA_3', traci.vehicle.getLanePosition(control_vehicle))    
+    # if change_lane=='left':
+    #     if '0' in pre_ego_info_dict["LaneID"]:
+    #         traci.vehicle.moveTo(control_vehicle, 'EA_1', traci.vehicle.getLanePosition(control_vehicle))
+    #     elif '1' in pre_ego_info_dict["LaneID"]:
+    #         traci.vehicle.moveTo(control_vehicle, 'EA_2', traci.vehicle.getLanePosition(control_vehicle))
+    #     elif '2' in pre_ego_info_dict["LaneID"]:
+    #         traci.vehicle.moveTo(control_vehicle, 'EA_3', traci.vehicle.getLanePosition(control_vehicle))
+    #     elif '3' in pre_ego_info_dict["LaneID"]:
+    #         traci.vehicle.moveTo(control_vehicle, 'EA_4', traci.vehicle.getLanePosition(control_vehicle))
+    # elif change_lane=='right':
+    #     if '1' in pre_ego_info_dict["LaneID"]:
+    #         traci.vehicle.moveTo(control_vehicle, 'EA_0', traci.vehicle.getLanePosition(control_vehicle))
+    #     elif '2' in pre_ego_info_dict["LaneID"]:
+    #         traci.vehicle.moveTo(control_vehicle, 'EA_1', traci.vehicle.getLanePosition(control_vehicle))
+    #     elif '3' in pre_ego_info_dict["LaneID"]:
+    #         traci.vehicle.moveTo(control_vehicle, 'EA_2', traci.vehicle.getLanePosition(control_vehicle))
+    #     elif '4' in pre_ego_info_dict["LaneID"]:
+    #         traci.vehicle.moveTo(control_vehicle, 'EA_3', traci.vehicle.getLanePosition(control_vehicle))    
     
     # 6. 执行
     # ================================执行 ==================================
+    pre_lane = traci.vehicle.getLaneIndex(control_vehicle)
     traci.simulationStep()
+    cur_lane = traci.vehicle.getLaneIndex(control_vehicle)
+    if cur_lane == pre_lane:
+        change_lane = 'keep'
+    elif cur_lane < pre_lane:
+        change_lane = 'right'
+    else:
+        change_lane = 'left'
     train_step = agent._step
     print("\t ################ 执行 ###################")
     print(f"\t ====== train_step:{train_step}  target_dir:{target_dir} ======")
@@ -573,6 +582,17 @@ def main_train():
                 minimal_size=agent_param["minimal_size"],
                 batch_size=agent_param["batch_size"],
                 device=agent_param["device"])
+        else:
+            agent = RainbowPDQNAgent(
+                state_dim=agent_param["s_dim"],
+                action_dim=agent_param["a_dim"],
+                acc3=agent_param["acc3"],
+                Kaiming_normal=agent_param["Kaiming_normal"],
+                memory_size=agent_param["memory_size"],
+                minimal_size=agent_param["minimal_size"],
+                batch_size=agent_param["batch_size"],
+                n_step=agent_param["n_step"],
+                device=agent_param["device"])
 
         losses_actor = [] # 不需要看第一个memory 即前20000步
         losses_episode = [] # 存一个episode的loss，一个episode结束后清除内容
@@ -582,7 +602,7 @@ def main_train():
         # (1) 区分train和test的参数设置，以及output位置
         episode_num = 400 # test的episode上限
         CL_Stage = 4 # test都在最后一个stage进行
-        agent.load_state_dict(torch.load(f"{out_dir}/150000_net_params.pth", map_location=DEVICE)) 
+        #agent.load_state_dict(torch.load(f"{out_dir}/net_params.pth", map_location=DEVICE)) 
         globals()['RL_CONTROL']=1100
         globals()['OUT_DIR']=f"{out_dir}/test" 
         
@@ -602,7 +622,7 @@ def main_train():
             
             # (3) 根据不同的CL_Stage启动对应的sumoCmd
             # stage 1 在5车道中模拟2车道，之后的stage都是5车道
-            cfg_path = f"{sumo_dir}cfg_CL2_high.sumocfg"
+            cfg_path = f"{sumo_dir}cfg_CL2_high_split.sumocfg"
             sumoCmd = [sumoBinary, "-c", cfg_path, "--log", f"{OUT_DIR}/logfile_{CL_Stage}.txt"]
             traci.start(sumoCmd)
             ego_index = 5 + epo % 20   # 选取随机车道第index辆出发的车为我们的自动驾驶车
@@ -652,7 +672,7 @@ def main_train():
                 
                 # 3 在非RL控制路段中采取其他行驶策略，控制的路段为RL_CONTROL-3100这2000m的距离
                 # 3.1 在0-RL_CONTROLm是去掉模拟器自带算法中的变道，但暂时保留速度控制
-                traci.vehicle.setLaneChangeMode(control_vehicle, 0b000000000000)
+                #traci.vehicle.setLaneChangeMode(control_vehicle, 0b000000000000)
                 # print("自动驾驶车的位置====================", traci.vehicle.getPosition(control_vehicle)[0])     
                 if traci.vehicle.getPosition(control_vehicle)[0] < RL_CONTROL:
                     traci.simulationStep()
@@ -669,8 +689,14 @@ def main_train():
                 #         traci.vehicle.setLaneChangeMode(vehicle, 0b000000000000)
         
                 # 4.3 去除自动驾驶车默认的跟车和换道模型，为模型训练做准备
-                traci.vehicle.setSpeedMode(control_vehicle, 00000)
-                traci.vehicle.setLaneChangeMode(control_vehicle, 0b000000000000)
+                #traci.vehicle.setSpeedMode(control_vehicle, 00000)
+                #traci.vehicle.setLaneChangeMode(control_vehicle, 0b000000000000)
+                if target_dir_init == 0:
+                    traci.vehicle.changeTarget(control_vehicle, 'ED')
+                elif target_dir_init == 1:
+                    traci.vehicle.changeTarget(control_vehicle, 'EC')
+                else:
+                    traci.vehicle.changeTarget(control_vehicle, 'EB')
                 
                 # 5 模型训练
                 collision, loss_actor, _ = train(agent, control_vehicle, epo,  target_dir_init, CL_Stage) # 模拟一个时间步
