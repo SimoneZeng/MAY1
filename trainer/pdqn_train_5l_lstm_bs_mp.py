@@ -38,7 +38,7 @@ curPath=os.path.abspath(os.path.dirname(__file__))
 rootPath=os.path.split(os.path.split(curPath)[0])[0]
 sys.path.append(rootPath+'/sumo_test01')
 
-from model.pdqn_model_5tl_lstm import PDQNAgent
+from model.pdqn_model_5tl_rainbow_lstm import PDQNAgent
 #from model.pdqn_model_5tl_rainbow_linear import PDQNAgent
 
 
@@ -543,7 +543,7 @@ def main_train():
         "memory_size": 40000,
         "minimal_size": 5000,
         "batch_size": 128,
-        "n_step": 1,
+        "n_step": 3,
         "burn_in_step": 0,
         "per_flag": True,
         "device": DEVICE
@@ -575,6 +575,7 @@ def main_train():
         
     # (1) 区分train和test的参数设置，以及output位置
     if not TRAIN:
+        worker.eval()
         episode_num = 400 # test的episode上限
         CL_Stage = 4 # test都在最后一个stage进行
         worker.load_state_dict(torch.load(f"{OUT_DIR}/net_params.pth", map_location=DEVICE))

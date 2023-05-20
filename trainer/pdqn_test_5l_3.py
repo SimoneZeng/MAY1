@@ -573,6 +573,7 @@ def main_train():
                 minimal_size=agent_param["minimal_size"],
                 batch_size=agent_param["batch_size"],
                 device=agent_param["device"])
+        agent.eval()
 
         losses_actor = [] # 不需要看第一个memory 即前20000步
         losses_episode = [] # 存一个episode的loss，一个episode结束后清除内容

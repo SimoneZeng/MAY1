@@ -533,6 +533,7 @@ def main_train():
         
     # (1) 区分train和test的参数设置，以及output位置
     if not TRAIN:
+        agent.eval()
         episode_num = 400 # test的episode上限
         CL_Stage = 4 # test都在最后一个stage进行
         agent.load_state_dict(torch.load(f"{OUT_DIR}/net_params.pth", map_location=DEVICE))

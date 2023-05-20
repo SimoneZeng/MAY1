@@ -158,7 +158,7 @@ class PDQNAgent(nn.Module):
             batch_size: int = 128, # former 32
             epsilon_initial=1.0,
             epsilon_final=0.05,
-            epsilon_decay=2000,
+            epsilon_decay=20000,
             gamma=0.9, # former 0.99
             lr_actor=0.001,
             lr_param=0.0001,

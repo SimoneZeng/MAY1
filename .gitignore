@@ -2,3 +2,4 @@
 *result_*/
 *.txt
 *model_params/
+*dataset/

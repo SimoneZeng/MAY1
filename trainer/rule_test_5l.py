@@ -47,7 +47,7 @@ sumo_path = os.environ['SUMO_HOME'] # "D:\\sumo\\sumo1.13.0"
 # sumo_dir = "C:\--codeplace--\sumo_inter\sumo_test01\sumo\\" # 1.在本地用这个cfg_path
 # sumo_dir = "D:\Git\MAY1\sumo\\" # 1.在本地用这个cfg_path
 sumo_dir = "/data1/zengximu/sumo_test01/sumo/" # 2. 在服务器上用这个cfg_path
-OUT_DIRs=["../0516/result_rule_5l"]
+OUT_DIRs=["../0517/result_rule_5l"]
 OUT_DIR=""
 sys.path.append(sumo_path)
 sys.path.append(sumo_path + "/tools")
@@ -289,6 +289,7 @@ def train(agent, control_vehicle, episode, target_dir, CL_Stage):
     action_change_dict = {0: 'left', 1: 'keep', 2:'right'}
     change_lane = action_change_dict[action_lc_int] # 0车道右车道在-8.0；1车道在-4.8；2车道左车道在-1.6
     change_lane = 'keep'
+    action_lc_int = 1
     
     # 3. 记录pre数据
     pre_ego_info_dict = {"speed": traci.vehicle.getSpeed(control_vehicle), 
@@ -386,10 +387,13 @@ def train(agent, control_vehicle, episode, target_dir, CL_Stage):
     cur_lane = traci.vehicle.getLaneIndex(control_vehicle)
     if cur_lane == pre_lane:
         change_lane = 'keep'
+        action_lc_int = 1
     elif cur_lane < pre_lane:
         change_lane = 'right'
+        action_lc_int = 2
     else:
         change_lane = 'left'
+        action_lc_int = 0
     train_step = agent._step
     print("\t ################ 执行 ###################")
     print(f"\t ====== train_step:{train_step}  target_dir:{target_dir} ======")
@@ -593,6 +597,7 @@ def main_train():
                 batch_size=agent_param["batch_size"],
                 n_step=agent_param["n_step"],
                 device=agent_param["device"])
+        agent.eval()
 
         losses_actor = [] # 不需要看第一个memory 即前20000步
         losses_episode = [] # 存一个episode的loss，一个episode结束后清除内容

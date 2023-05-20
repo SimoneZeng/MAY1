@@ -32,9 +32,9 @@ import os, sys, shutil
 import pandas as pd
 import math, re
 import pprint as pp
-# curPath=os.path.abspath(os.path.dirname(__file__))
-# rootPath=os.path.split(os.path.split(curPath)[0])[0]
-# sys.path.append(rootPath+'/sumo_test01')
+curPath=os.path.abspath(os.path.dirname(__file__))
+rootPath=os.path.split(os.path.split(curPath)[0])[0]
+sys.path.append(rootPath+'/sumo_test01')
 
 #from model.pdqn_model_5tl_lstm import PDQNAgent
 from model.pdqn_model_5tl_rainbow_linear import PDQNAgent as RainbowPDQNAgent
@@ -45,9 +45,9 @@ from model.pdqn_model_5tl_lstm import PDQNAgent as LstmPDQNAgent
 # 引入地址 
 sumo_path = os.environ['SUMO_HOME'] # "D:\\sumo\\sumo1.13.0"
 # sumo_dir = "C:\--codeplace--\sumo_inter\sumo_test01\sumo\\" # 1.在本地用这个cfg_path
-sumo_dir = "D:\Git\MAY1\sumo\\" # 1.在本地用这个cfg_path
-#sumo_dir = "/data1/zengximu/sumo_test01/sumo/" # 2. 在服务器上用这个cfg_path
-OUT_DIRs=["./result_pdqn_5l_rainbow_linear"]
+#sumo_dir = "D:\Git\MAY1\sumo\\" # 1.在本地用这个cfg_path
+sumo_dir = "/data1/zengximu/sumo_test01/sumo/" # 2. 在服务器上用这个cfg_path
+OUT_DIRs=["../0516/result_pdqn_5l_cl1_rg2_rainbow_linear_mp"]
 OUT_DIR=""
 sys.path.append(sumo_path)
 sys.path.append(sumo_path + "/tools")
@@ -56,7 +56,7 @@ import traci # 在ubuntu中，traci和sumolib需要在tools地址引入之后imp
 from sumolib import checkBinary
 
 TRAIN = False # False True
-gui = True # False True # 是否打开gui
+gui = False # False True # 是否打开gui
 if gui == True:
     sumoBinary = checkBinary('sumo-gui')
 else:
@@ -577,6 +577,7 @@ def main_train():
                 minimal_size=agent_param["minimal_size"],
                 batch_size=agent_param["batch_size"],
                 device=agent_param["device"])
+        agent.eval()
             
         # (1) 区分train和test的参数设置，以及output位置
         episode_num = 400 # test的episode上限

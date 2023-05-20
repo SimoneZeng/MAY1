@@ -18,7 +18,7 @@ from tqdm import tqdm
 import pprint as pp
 
 memory_size = 40000 # 20000 200000 bmem 40000
-TRAIN = False # True False
+TRAIN = True # True False
  
 # name = 'pdqn_5l_rainbow_linear_mp'
 # record_dir = './0516/result_pdqn_5l_linear_mp'
@@ -177,7 +177,7 @@ def draw_epo_reward(df_all_epo, sm_size ):
     plt.figure(figsize=(12,6))
     plt.xlabel("epo", fontsize=14) # x y轴含义
     plt.ylabel("average reward per episode", fontsize=14)
-    plt.plot(df["epo"][2 * sm_size:,], epo_reward, 's-', color = 'g', label = 'model') # s- 方形， o- 圆形
+    plt.plot(df["epo"][2 * sm_size:,], epo_reward,  color = 'g', label = 'model') # s- 方形， o- 圆形
     plt.tick_params(labelsize=14) # 坐标轴字体
     #plt.savefig('./1012/result_record_sp8_ttc_co100.jpg') # 先save再show；反之保存的图片为空
     plt.show()
@@ -197,13 +197,13 @@ if __name__ == '__main__':
         - AvgV-A
         - AvgJ-A
     '''
-    if TRAIN:
-        df_all_epo = get_df_all_epo(record_dir)
-        df_all_epo.to_csv(f"{record_dir}/all_epo.csv", index = False)
+    # if TRAIN:
+    #     df_all_epo = get_df_all_epo(record_dir)
+    #     df_all_epo.to_csv(f"{record_dir}/all_epo.csv", index = False)
     
-    # df_all_epo = pd.read_csv(f"./0516/result_pdqn_5l_rainbow_linear_mp/all_epo.csv")
+    df_all_epo = pd.read_csv(f"./result_pdqn_5l_lstm_bs_mp/all_epo.csv")
     # print_metric(df_all_epo)
-    # draw_epo_reward(df_all_epo, sm_size = 10)
+    draw_epo_reward(df_all_epo, sm_size = 100)
     
     # method_name = ['pdqn_5l_linear_mp',  'pdqn_5l_rainbow_linear_mp', 
     #                'pdqn_5l_cl2_rg_rainbow_linear_mp', 
