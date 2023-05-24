@@ -18,11 +18,11 @@ from tqdm import tqdm
 import pprint as pp
 
 memory_size = 40000 # 20000 200000 bmem 40000
-TRAIN = True # True False
+TRAIN = False # True False
  
 # name = 'pdqn_5l_rainbow_linear_mp'
 # record_dir = './0516/result_pdqn_5l_linear_mp'
-record_dir = './result_pdqn_5l_lstm_bs_mp'
+record_dir = './0516/result_d3qn_5l_linear_mp/test'
 # record_dir = './0516'
 
 def get_df_all_epo(record_dir):
@@ -142,18 +142,31 @@ def get_df_all_epo(record_dir):
     return df_all
 
 def print_metric(df_all):
+    '''
+    注意，有些指标需要在完成的前提下进行统计
+
+    Parameters
+    ----------
+    df_all : TYPE
+        DESCRIPTION.
+
+    Returns
+    -------
+    None.
+
+    '''
     df_all_epo = df_all.copy()
     result_metric = {}
     result_metric['Success'] = df_all_epo['success'].mean()
-    result_metric['AvgT'] = 0.5 * df_all_epo['epo_step'].mean() # 每个时间步是 0.5 s
-    result_metric['AvgLC'] = df_all_epo['lane_change_times'].mean()
+    result_metric['AvgT'] = 0.5 * df_all_epo[(df_all_epo['success'] == 1)]['epo_step'].mean() # 每个时间步是 0.5 s
+    result_metric['AvgLC'] = df_all_epo[(df_all_epo['success'] == 1)]['lane_change_times'].mean()
     result_metric['AvgC-C'] = df_all_epo['co_vehicle'].mean()
     result_metric['AvgRI'] = df_all_epo['co_road'].mean()
-    result_metric['AvgA-C'] = df_all_epo['affect_times'].mean()
+    result_metric['AvgA-C'] = df_all_epo[(df_all_epo['success'] == 1)]['affect_times'].mean()
     
-    result_metric['AvgTTC-A'] = df_all_epo['avg_ttc'].mean()
-    result_metric['AvgV-A'] = df_all_epo['avg_velocity'].mean()
-    result_metric['AvgJ-A'] = df_all_epo['avg_jerk'].mean()
+    result_metric['AvgTTC-A'] = df_all_epo[(df_all_epo['success'] == 1)]['avg_ttc'].mean()
+    result_metric['AvgV-A'] = df_all_epo[(df_all_epo['success'] == 1)]['avg_velocity'].mean()
+    result_metric['AvgJ-A'] = df_all_epo[(df_all_epo['success'] == 1)]['avg_jerk'].mean()
     print(result_metric)
 
 def smooth(data, sm=1):
@@ -177,7 +190,7 @@ def draw_epo_reward(df_all_epo, sm_size ):
     plt.figure(figsize=(12,6))
     plt.xlabel("epo", fontsize=14) # x y轴含义
     plt.ylabel("average reward per episode", fontsize=14)
-    plt.plot(df["epo"][2 * sm_size:,], epo_reward,  color = 'g', label = 'model') # s- 方形， o- 圆形
+    plt.plot(df["epo"][2 * sm_size:,], epo_reward, 's-', color = 'g', label = 'model') # s- 方形， o- 圆形
     plt.tick_params(labelsize=14) # 坐标轴字体
     #plt.savefig('./1012/result_record_sp8_ttc_co100.jpg') # 先save再show；反之保存的图片为空
     plt.show()
@@ -197,21 +210,35 @@ if __name__ == '__main__':
         - AvgV-A
         - AvgJ-A
     '''
-    # if TRAIN:
-    #     df_all_epo = get_df_all_epo(record_dir)
-    #     df_all_epo.to_csv(f"{record_dir}/all_epo.csv", index = False)
+    # df_all_epo = get_df_all_epo(record_dir)
+    # df_all_epo.to_csv(f"{record_dir}/all_epo.csv", index = False)
     
-    df_all_epo = pd.read_csv(f"./result_pdqn_5l_lstm_bs_mp/all_epo.csv")
-    # print_metric(df_all_epo)
-    draw_epo_reward(df_all_epo, sm_size = 100)
+    df_all_epo = pd.read_csv(f"./0518/result_rule_5l/test/all_epo.csv")
     
-    # method_name = ['pdqn_5l_linear_mp',  'pdqn_5l_rainbow_linear_mp', 
-    #                'pdqn_5l_cl2_rg_rainbow_linear_mp', 
-    #                 'pdqn_5l_cl2_rainbow_linear_mp', 'pdqn_5l_ccl2_rainbow_linear_mp',
-    #                 'pdqn_5l_cl1_rg_rainbow_linear_mp', 'pdqn_5l_cl1_rainbow_linear_mp',
-    #                 'pdqn_5l_ccl1_rainbow_linear_mp']
+    print_metric(df_all_epo)
+    # draw_epo_reward(df_all_epo, sm_size = 10)
+        
+    # method_name = [
+    #                 # 'rule_5l',
+    #                 'd3qn_5l_linear_mp',
+    #                 'pdqn_5l_linear_mp',  
+    #                 'pdqn_5l_rainbow_linear_mp', 
+    #                 'pdqn_5l_rg2_rainbow_linear_mp', 
+    #                 'pdqn_5l_cl1_rainbow_linear_mp', 
+    #                 'pdqn_5l_cl1_rg_rainbow_linear_mp', 'pdqn_5l_cl1_rg2_rainbow_linear_mp', 
+    #                 'pdqn_5l_cl2_rainbow_linear_mp',
+    #                   'pdqn_5l_cl2_rg_rainbow_linear_mp', 'pdqn_5l_cl2_rg2_rainbow_linear_mp',
+    #                 'pdqn_5l_ccl1_rainbow_linear_mp', 'pdqn_5l_ccl2_rainbow_linear_mp'
+    #                 ]
     
-    # sm_size = 50
+    # # test 查看metric
+    # for name in method_name:
+    #     print(name)
+    #     df = pd.read_csv(f"./0516/result_{name}/test/all_epo.csv")
+    #     print_metric(df)
+    
+    # train 查看训练过程
+    # sm_size = 200
     
     # plt.figure(figsize=(24,12))
     # plt.xlabel("epo", fontsize=14) # x y轴含义
@@ -220,13 +247,12 @@ if __name__ == '__main__':
     # for name in method_name:
     #     print(name)
     #     df = pd.read_csv(f"./0516/result_{name}/all_epo.csv")
-    #     # print_metric(df)
     #     plt.plot(df["epo"][2 * sm_size:,], 
     #               smooth(df['avg_r'].to_list(), sm = sm_size), 
     #               label = name)
     # plt.tick_params(labelsize=14) # 坐标轴字体
-    # # plt.savefig('./0516/result1.jpg') # 先save再show；反之保存的图片为空
     # plt.legend()
+    # plt.savefig('./0516/train_process.svg', format='svg', dpi=150) # 先save再show；反之保存的图片为空
     # plt.show()
     
 
