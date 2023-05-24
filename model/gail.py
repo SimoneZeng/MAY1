@@ -29,13 +29,14 @@ class GAIL:
         self.agent = agent
         self.device = device
 
-    def learn(self, expert_s, expert_tl, expert_a, agent_s, agent_tl, agent_a, next_s, next_tl, dones):
+    def learn(self, expert_s, expert_tl, expert_a, agent_s, agent_tl, agent_act, 
+              agent_act_param, next_s, next_tl, dones):
         expert_states = torch.tensor(expert_s, dtype=torch.float32).to(self.device)
         expert_tl_codes = torch.tensor(expert_tl, dtype=torch.float32).to(self.device)
         expert_actions = torch.tensor(expert_a, dtype=torch.float32).to(self.device)
         agent_states = torch.tensor(agent_s, dtype=torch.float32).to(self.device)
         agent_tl_codes = torch.tensor(agent_tl, dtype=torch.float32).to(self.device)
-        agent_actions = torch.tensor(agent_a, dtype=torch.float32).to(self.device)
+        agent_actions = torch.tensor(agent_act, dtype=torch.float32).to(self.device)
         expert_actions = F.one_hot(expert_actions, num_classes=2).float()
         agent_actions = F.one_hot(agent_actions, num_classes=2).float()
 
@@ -48,12 +49,16 @@ class GAIL:
         self.discriminator_optimizer.step()
 
         rewards = -torch.log(agent_prob).detach().cpu().numpy()
-        self.agent.store_transition(agent_s, agent_tl, agent_a, rewards, next_s, next_tl, dones)
         transition_dict = {
-            'states': agent_s,
-            'actions': agent_a,
+            'obs': agent_s,
+            'next_obs':next_s,
+            'tl_code':agent_tl,
+            'next_tl_code':next_tl,
+            'act':agent_act,
+            'act_param':agent_act_param,
+            'actions': agent_act,
             'rewards': rewards,
             'next_states': next_s,
             'dones': dones
         }
-        self.agent.update(transition_dict)
+        return self.agent.learn(transition_dict)

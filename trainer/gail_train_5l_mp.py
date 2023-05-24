@@ -30,7 +30,7 @@ import torch
 import random
 import os, sys, shutil
 import pandas as pd
-import math
+import math, re
 import pprint as pp
 import multiprocessing as mp
 from multiprocessing import Process, Queue, Pipe, connection, Lock
@@ -38,8 +38,9 @@ curPath=os.path.abspath(os.path.dirname(__file__))
 rootPath=os.path.split(os.path.split(curPath)[0])[0]
 sys.path.append(rootPath+'/sumo_test01')
 
-from model.pdqn_model_5tl_rainbow_lstm import PDQNAgent
-#from model.pdqn_model_5tl_rainbow_linear import PDQNAgent
+#from model.pdqn_model_5tl_lstm import PDQNAgent
+from model.pdqn_model_5tl_rainbow_linear import PDQNAgent
+from model.gail import GAIL
 
 
 # 引入地址 
@@ -47,7 +48,7 @@ sumo_path = os.environ['SUMO_HOME'] # "D:\\sumo\\sumo1.13.0"
 # sumo_dir = "C:\--codeplace--\sumo_inter\sumo_test01\sumo\\" # 1.在本地用这个cfg_path
 #sumo_dir = "D:\Git\MAY1\sumo\\" # 1.在本地用这个cfg_path
 sumo_dir = "/data1/zengximu/sumo_test01/sumo/" # 2. 在服务器上用这个cfg_path
-OUT_DIR="result_pdqn_5l_lstm_bs_mp"
+OUT_DIR="result_pdqn_5l_rainbow_linear_mp"
 sys.path.append(sumo_path)
 sys.path.append(sumo_path + "/tools")
 sys.path.append(sumo_path + "/tools/xml")
@@ -71,10 +72,27 @@ random.seed(0)
 torch.manual_seed(5)
 
 # PRE_LANE = None
+# target_dir_inits 编码
+TL_LIST = [[0,1,0,0,0,0,1], [1,1,0,1,1,1,0], [1,0,1,1,0,0,0]] # 0 是前方右转，1是直行，2是前方左转
 RL_CONTROL = 1100 # Rl agent take control after 1100 meters
 UPDATE_FREQ = 100 # model update frequency for multiprocess
 DEVICE = torch.device("cuda:3")
 # DEVICE = torch.device("cpu")
+
+def get_dataset(record_dir):
+    cols = ['stage', 'epo', 'train_step', 'position_y', 'target_direc', 'lane','speed', 
+            'lc_int', 'fact_acc', 'acc', 'change_lane', 'ttc', 'tail_car_acc', 'r', 
+            'r_safe', 'r_eff', 'r_com', 'r_tl', 'r_fluc', 'other_record', 'done',
+            's', 's_']
+    df_all = pd.DataFrame(columns = cols)
+    for file_name in os.listdir(record_dir):
+        if re.search(r'df_record_epo', file_name):
+            one_file = pd.read_csv(f"{record_dir}/{file_name}")
+            if len(one_file)>=3:
+                df_all=pd.concat([df_all, one_file], axis=0)
+                print(df_all.info)
+    
+    return df_all
 
 def get_all(control_vehicle, select_dis):
     """
@@ -271,10 +289,7 @@ def train(worker, lock, traj_q, agent_q, control_vehicle, episode, target_dir, C
     # 1. 根据不同stage以及get_all中ego所在lane，修改其target lanes
     all_vehicle, rel_up, v_dict = get_all(control_vehicle, 200)
     print("$ v_dict", v_dict)
-    
-    # target_dir_inits 编码
-    tl_list = [[0,1,0,0,0,0,1], [1,1,0,1,1,1,0], [1,0,1,1,0,0,0]] # 0 是前方右转，1是直行，2是前方左转
-    tl_code = tl_list[target_dir] # 根据target_dir获得对应direction的tl_code
+    tl_code = TL_LIST[target_dir] # 根据target_dir获得对应direction的tl_code
     
     # 2. choose_action 得到动作 change_lane, action_acc
     if TRAIN:
@@ -519,10 +534,8 @@ def train(worker, lock, traj_q, agent_q, control_vehicle, episode, target_dir, C
         worker.actor_target.load_state_dict(model_dict["actor_target"])
         worker.param.load_state_dict(model_dict["param"])
         worker.param_target.load_state_dict(model_dict["param_target"])
-        reset_epsilon, _learn_step, loss_actor, Q_loss = agent_q.get()
+        _learn_step, loss_actor, Q_loss = agent_q.get()
         lock.release()
-        if reset_epsilon:
-            worker.epsilon = worker.epsilon_initial
         worker._learn_step=_learn_step
 
         print('$ actor的loss ', loss_actor, 'q的loss ', Q_loss)
@@ -544,8 +557,7 @@ def main_train():
         "minimal_size": 5000,
         "batch_size": 128,
         "n_step": 1,
-        "burn_in_step": 0,
-        "per_flag": True,
+        "per_flag": False,
         "device": DEVICE
     }
 
@@ -558,11 +570,10 @@ def main_train():
         minimal_size=agent_param["minimal_size"],
         batch_size=agent_param["batch_size"],
         n_step=agent_param["n_step"],
-        burn_in_step=agent_param["burn_in_step"],
         per_flag=agent_param["per_flag"],
         device=agent_param["device"])
     process=list()
-    traj_q=Queue(maxsize=5000)
+    traj_q=Queue(maxsize=40000)
     agent_q=Queue(maxsize=1)
     lock=Lock()
     process.append(mp.Process(target=learner_process, args=(lock, traj_q, agent_q, deepcopy(agent_param))))
@@ -597,7 +608,6 @@ def main_train():
     
     # (2) 分episode进行 train / test
     for epo in range(episode_num): 
-        worker.init_hidden()
         truncated = False # 撞车
         target_dir_init = None # 初始的target_dir，目标转向方向
         
@@ -706,26 +716,24 @@ def main_train():
         # 保存
         df_record.to_csv(f"{OUT_DIR}/df_record_epo_{epo}.csv", index = False)
         if TRAIN:
-            if worker._learn_step > 250000:
-                torch.save(worker.state_dict(), f"./{OUT_DIR}/250000_net_params.pth")
-            elif worker._learn_step > 200000:
-                torch.save(worker.state_dict(), f"./{OUT_DIR}/200000_net_params.pth")
-            elif worker._learn_step > 150000:
-                torch.save(worker.state_dict(), f"./{OUT_DIR}/150000_net_params.pth")
-            elif worker._learn_step > 100000:
-                torch.save(worker.state_dict(), f"./{OUT_DIR}/100000_net_params.pth")
-            elif worker._learn_step > 50000:
-                torch.save(worker.state_dict(), f"./{OUT_DIR}/50000_net_params.pth")
-            elif worker._learn_step > 20000:
-                torch.save(worker.state_dict(), f"./{OUT_DIR}/20000_net_params.pth")
+            if worker._learn_step > 6000:
+                torch.save(worker.state_dict(), f"./{OUT_DIR}/6000_net_params.pth")
+            elif worker._learn_step > 5000:
+                torch.save(worker.state_dict(), f"./{OUT_DIR}/5000_net_params.pth")
+            elif worker._learn_step > 4000:
+                torch.save(worker.state_dict(), f"./{OUT_DIR}/4000_net_params.pth")
+            elif worker._learn_step > 3000:
+                torch.save(worker.state_dict(), f"./{OUT_DIR}/3000_net_params.pth")
+            elif worker._learn_step > 2000:
+                torch.save(worker.state_dict(), f"./{OUT_DIR}/2000_net_params.pth")
+            elif worker._learn_step > 1000:
+                torch.save(worker.state_dict(), f"./{OUT_DIR}/1000_net_params.pth")
             torch.save(worker.state_dict(), f"./{OUT_DIR}/net_params.pth") 
             pd.DataFrame(data=losses_actor).to_csv(f"./{OUT_DIR}/losses.csv")
 
     [p.join() for p in process]
 
 def learner_process(lock:Lock, traj_q: Queue, agent_q: Queue, agent_param:dict):
-    bs_pow = 0
-    reset_epsilon = False
     learner = PDQNAgent(
         state_dim=agent_param["s_dim"],
         action_dim=agent_param["a_dim"],
@@ -735,12 +743,14 @@ def learner_process(lock:Lock, traj_q: Queue, agent_q: Queue, agent_param:dict):
         minimal_size=agent_param["minimal_size"],
         batch_size=agent_param["batch_size"],
         n_step=agent_param["n_step"],
-        burn_in_step=agent_param["burn_in_step"],
         per_flag=agent_param["per_flag"],
         device=agent_param["device"])
     if TRAIN and os.path.exists(f"./model_params/{OUT_DIR}_net_params.pth"):
-        learner.load_state_dict(torch.load(f"./model_params/{OUT_DIR}_net_params.pth", map_location=DEVICE))
-    
+        learner.load_state_dict(torch.load(f"./model_params/{OUT_DIR}_net_params.pth", map_location=DEVICE)) 
+    # gail agent
+    gail = GAIL(learner, learner.state_dim, learner.tl_dim, learner.action_dim, lr_d=1e-3, device=learner.device)
+    expert_trajs = get_dataset('./dataset')
+
     while(True):
         #k=max(len(learner.memory)//learner.minimal_size, 1)
         #learner.batch_size*=k
@@ -749,21 +759,24 @@ def learner_process(lock:Lock, traj_q: Queue, agent_q: Queue, agent_param:dict):
             obs, tl_code, action, action_param, reward, next_obs, next_tl_code, done = transition[0], transition[1], transition[2], \
                 transition[3], transition[4], transition[5], transition[6], transition[7]
             learner.store_transition(obs, tl_code, action, action_param, reward, next_obs, next_tl_code, done)
-            print(len(learner.memory))
 
         if TRAIN and len(learner.memory)>=learner.minimal_size:
             print("LEARN BEGIN")
             for _ in range(UPDATE_FREQ):
-                loss_actor, Q_loss=learner.learn()
+                sample_trajs = expert_trajs.sample(learner.batch_size)
+                trajs ={
+                    "obs":sample_trajs['s'],
+                    "next_obs":sample_trajs['s_'],
+                    "tl_code":[ TL_LIST[target_dir] for target_dir in sample_trajs['target_direc']],
+                    "next_tl_code":[TL_LIST[target_dir] for target_dir in sample_trajs['target_direc']],
+                    "act":sample_trajs['lc_int'],
+                    "act_param":[sample_trajs['acc'] for _ in range(3)],
+                    "rew":[ 0 for _ in range(len(sample_trajs))],
+                    "dones":sample_trajs['done']
+                }
+                gail.learn(trajs)
+                loss_actor, Q_loss=learner.learn(trajs)
             #loss_actor, Q_loss=[learner.learn() for _ in range(k)]
-            if learner._learn_step % 20000 == 0 and bs_pow < 4:
-                learner.burn_in_step=int(math.pow(2, bs_pow))
-                learner.memory.reset(learner.burn_in_step)
-                learner.minimal_size = min(learner.minimal_size+5000, learner.memory_size)
-                torch.save(learner.state_dict(), f"./{OUT_DIR}/{bs_pow}_net_params.pth")
-                bs_pow+=1
-                reset_epsilon = True
-
             if not agent_q.full() and learner._learn_step % UPDATE_FREQ == 0:
                 # actor=deepcopy(learner.actor.state_dict())
                 # actor_target=deepcopy(learner.actor_target.state_dict())
@@ -771,8 +784,7 @@ def learner_process(lock:Lock, traj_q: Queue, agent_q: Queue, agent_param:dict):
                 # param_target=deepcopy(learner.param_target.state_dict())
                 
                 lock.acquire()
-                agent_q.put((reset_epsilon, deepcopy(learner._learn_step), deepcopy(loss_actor), deepcopy(Q_loss)), block=True, timeout=None)
-                reset_epsilon = False
+                agent_q.put((deepcopy(learner._learn_step), deepcopy(loss_actor), deepcopy(Q_loss)), block=True, timeout=None)
                 torch.save({
                     "actor":learner.actor.state_dict(),
                     "actor_target":learner.actor_target.state_dict(),

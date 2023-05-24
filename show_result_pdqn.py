@@ -22,7 +22,12 @@ TRAIN = False # True False
  
 # name = 'pdqn_5l_rainbow_linear_mp'
 # record_dir = './0516/result_pdqn_5l_linear_mp'
-record_dir = './0516/result_d3qn_5l_linear_mp/test'
+record_dirs = [
+    # './0520/result_pdqn_5l_cl1_rg2_rainbow_linear_mp',
+    #'./0520/result_pdqn_5l_rg2_rainbow_linear_mp',
+    #'./0520/result_pdqn_5l_rg2_linear_mp',
+    './0520/result_pdqn_5l_tlr0_cl1_rg2_rainbow_linear_mp'
+    ]
 # record_dir = './0516'
 
 def get_df_all_epo(record_dir):
@@ -210,14 +215,14 @@ if __name__ == '__main__':
         - AvgV-A
         - AvgJ-A
     '''
-    # df_all_epo = get_df_all_epo(record_dir)
-    # df_all_epo.to_csv(f"{record_dir}/all_epo.csv", index = False)
+    for record_dir in record_dirs:
+        df_all_epo = get_df_all_epo(record_dir)
+        df_all_epo.to_csv(f"{record_dir}/all_epo.csv", index = False)
     
-    df_all_epo = pd.read_csv(f"./0518/result_rule_5l/test/all_epo.csv")
-    
-    print_metric(df_all_epo)
-    # draw_epo_reward(df_all_epo, sm_size = 10)
-        
+        df_all_epo = pd.read_csv(f"{record_dir}/all_epo.csv")
+        print_metric(df_all_epo)
+        draw_epo_reward(df_all_epo, sm_size = 100)
+
     # method_name = [
     #                 # 'rule_5l',
     #                 'd3qn_5l_linear_mp',
@@ -254,8 +259,3 @@ if __name__ == '__main__':
     # plt.legend()
     # plt.savefig('./0516/train_process.svg', format='svg', dpi=150) # 先save再show；反之保存的图片为空
     # plt.show()
-    
-
-
-
-
