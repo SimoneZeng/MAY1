@@ -39,7 +39,7 @@ sys.path.append(rootPath+'/sumo_test01')
 #from model.pdqn_model_5tl_lstm import PDQNAgent
 from model.pdqn_model_5tl_rainbow_linear import PDQNAgent as RainbowPDQNAgent
 from model.pdqn_model_5tl_linear import PDQNAgent as LinearPDQNAgent
-from model.pdqn_model_5tl_lstm import PDQNAgent as LstmPDQNAgent
+from model.pdqn_model_5tl_rainbow_lstm import PDQNAgent as LstmPDQNAgent
 
 
 # 引入地址 
@@ -47,7 +47,7 @@ sumo_path = os.environ['SUMO_HOME'] # "D:\\sumo\\sumo1.13.0"
 # sumo_dir = "C:\--codeplace--\sumo_inter\sumo_test01\sumo\\" # 1.在本地用这个cfg_path
 # sumo_dir = "D:\Git\MAY1\sumo\\" # 1.在本地用这个cfg_path
 sumo_dir = "/data1/zengximu/sumo_test01/sumo/" # 2. 在服务器上用这个cfg_path
-OUT_DIRs=["../0516/result_pdqn_5l_cl1_rg2_rainbow_linear_mp"]
+OUT_DIRs=["./05/result_pdqn_5l_lstm_bs_mp"]
 OUT_DIR=""
 sys.path.append(sumo_path)
 sys.path.append(sumo_path + "/tools")

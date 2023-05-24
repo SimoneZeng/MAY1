@@ -441,15 +441,16 @@ class PDQNAgent(nn.Module):
         self.transition = [obs, tl, act, act_param, rew, next_obs, next_tl, done]
         self.memory.store(*self.transition) # store 没有返回值
 
-    def learn(self):
+    def learn(self, samples=None):
         self._learn_step += 1
-        if self.per_flag:        
-            samples = self.memory.sample_batch(self.beta)
-            # PER needs beta to calculate weights
-            weights = torch.FloatTensor(samples["weights"].reshape(-1,1)).to(self.device)
-            indices = samples["indices"]
-        else:
-            samples = self.memory.sample_batch()
+        if samples is None:
+            if self.per_flag:        
+                samples = self.memory.sample_batch(self.beta)
+                # PER needs beta to calculate weights
+                weights = torch.FloatTensor(samples["weights"].reshape(-1,1)).to(self.device)
+                indices = samples["indices"]
+            else:
+                samples = self.memory.sample_batch()
         
         # compute loss
         device = self.device  # for shortening the following lines

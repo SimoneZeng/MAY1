@@ -21,7 +21,7 @@ memory_size = 20000 # 20000 200000 bmem
 TRAIN = False # True False
 PRETRAIN = False # True False 加入预训练
 
-record_dir = './result_pdqn_5l_lstm_mp/test'
+record_dir = './result_pdqn_5l_lstm_bs_mp/test'
 # record_dir = './result_record_pdqn_3r_5tl_tlr_noctrl_linear_5l'
 
 # 1. 整理每个epo的数据，获得df_all_epo
